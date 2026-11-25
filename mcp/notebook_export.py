@@ -23,7 +23,7 @@ from pathlib import Path
 
 SKILLS = {
     "android-control": Path("/root/.claude/skills/android-control"),
-    "android-assistant": Path("/root/cliphist-android/assistant/skill/android-assistant"),
+    "android-assistant": Path("/root/android-assistant/skill/android-assistant"),
 }
 TASKER_BACKUP = "/data/data/net.dinglisch.android.taskerm/files/autobackup.xml"
 SERIAL = "127.0.0.1:5555"

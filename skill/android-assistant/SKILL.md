@@ -1,12 +1,12 @@
 ---
 name: android-assistant
-description: Use the phone this Claude Code runs on as an assistant - read and drive its screen, open apps and deep links, post notifications, run Tasker tasks, control MIA lights over MQTT, record audio or the screen, use clipboard history, ask Gemini for a second opinion in the Gemini app (with + tools like Deep Research or Create images, read aloud), work in Gemini Notebooks / NotebookLM (ask grounded in sources, add sources, Studio audio overviews and reports, export skills and Tasker config into the shared notebook), ask DeepSeek, Kimi, Grok, ChatGPT or Perplexity in their apps for another opinion, delegate to the `phone`, `gemini`, `deepseek`, `kimi`, `grok`, `chatgpt` and `perplexity` Claude Code agents (also from Tasker), and run the hands-free voice assistant (Android assistant gesture → Tasker → ElevenLabs STT → Claude → ElevenLabs TTS). Use when the user asks to do something on the phone, wants Gemini's take or a Gemini Deep Research/image, wants DeepSeek's, Kimi's, Grok's, ChatGPT's or Perplexity's take, mentions `claude --agent`, agent handoffs or Tasker tasks that run Claude, or asks to check or fix the voice assistant, its Tasker trigger, mic/speaker, or how the phone, mcp-prompts, cliphist-android and ElevenLabs fit together.
+description: Use the phone this Claude Code runs on as an assistant - read and drive its screen, open apps and deep links, post notifications, run Tasker tasks, control MIA lights over MQTT, record audio or the screen, use clipboard history, ask Gemini for a second opinion in the Gemini app (with + tools like Deep Research or Create images, read aloud), work in Gemini Notebooks / NotebookLM (ask grounded in sources, add sources, Studio audio overviews and reports, export skills and Tasker config into the shared notebook), ask DeepSeek, Kimi, Grok, ChatGPT or Perplexity in their apps for another opinion, delegate to the `phone`, `gemini`, `deepseek`, `kimi`, `grok`, `chatgpt` and `perplexity` Claude Code agents (also from Tasker), and run the hands-free voice assistant (Android assistant gesture → Tasker → ElevenLabs STT → Claude → ElevenLabs TTS). Use when the user asks to do something on the phone, wants Gemini's take or a Gemini Deep Research/image, wants DeepSeek's, Kimi's, Grok's, ChatGPT's or Perplexity's take, mentions `claude --agent`, agent handoffs or Tasker tasks that run Claude, or asks to check or fix the voice assistant, its Tasker trigger, mic/speaker, or how the phone, android-assistant, mcp-prompts, cliphist-android and ElevenLabs fit together.
 ---
 
 # Android assistant
 
 Claude Code runs in Debian PRoot inside Termux on a rooted Android 15 phone. This skill ties the
-pieces together. The code lives in `/root/cliphist-android/assistant/`; `/root/phone` and
+pieces together. The code lives in `/root/android-assistant/`; `/root/phone` and
 `/root/voice-assistant` are symlinks into it.
 
 ## Map: who owns what
@@ -108,4 +108,4 @@ hands off. Setup, debugging and adding an agent: `references/agents.md`.
 - Tasker setup and the assistant gesture: `references/voice-pipeline.md`.
 - Gemini by hand: `assistant/mcp/.venv/bin/python assistant/mcp/gemini.py "q" --tool "+Deep Research" --no-send`.
 - Other AI apps by hand: `assistant/mcp/.venv/bin/python assistant/mcp/chatbots.py deepseek "q" --no-send [--dump DIR]`.
-- Agent from the shell: `echo "q" | /root/cliphist-android/assistant/agents/run-agent.sh gemini`; log `/root/phone/logs/agents.log`.
+- Agent from the shell: `echo "q" | /root/android-assistant/agents/run-agent.sh gemini`; log `/root/phone/logs/agents.log`.

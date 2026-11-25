@@ -218,7 +218,7 @@ def test_announce_and_summary_lines():
 
 def test_repos_config_is_valid():
     rs = router.repos()
-    assert [r["name"] for r in rs] == ["cliphist-android", "mcp-prompts", "mia", "elevenlabs-agents", "mcp-router"]
+    assert [r["name"] for r in rs] == ["cliphist-android", "android-assistant", "mcp-prompts", "mia", "elevenlabs-agents", "mcp-router"]
     assert all(r["slug"] == "sparesparrow/" + r["name"] for r in rs)
 
 

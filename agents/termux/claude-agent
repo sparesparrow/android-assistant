@@ -14,7 +14,7 @@ case $origin in tasker|shell|ssh) ;; *) origin=tasker ;; esac
 PORT=${PROOT_SSH_PORT:-8023}
 KEY=$HOME/.ssh/proot_agent_ed25519
 LOG=$HOME/.termux/tasker/claude-agent.log
-RUNNER=/root/cliphist-android/assistant/agents/run-agent.sh
+RUNNER=/root/android-assistant/agents/run-agent.sh
 echo "$(date '+%F %T') $agent $origin" >>"$LOG"
 
 if [ -f "$KEY" ] && timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$PORT" 2>/dev/null; then

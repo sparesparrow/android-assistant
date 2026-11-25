@@ -6,7 +6,7 @@ HostKey /etc/ssh/ssh_host_ed25519_key
 PidFile /root/phone/state/proot-sshd.pid
 AuthorizedKeysFile /root/phone/state/agent_authorized_keys
 PermitRootLogin forced-commands-only
-ForceCommand /root/cliphist-android/assistant/agents/run-agent.sh --ssh
+ForceCommand /root/android-assistant/agents/run-agent.sh --ssh
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes

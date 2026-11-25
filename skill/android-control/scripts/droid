@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""droid: perceive/act on the Android device this Claude Code runs on (Termux / PRoot).
+
+Backends, tried in order (override with DROID_BACKEND=adb|root|rish):
+  adb   adb shell to $DROID_SERIAL (default 127.0.0.1:5555; Magisk boot script keeps adbd on it)
+  root  Termux su (works only when Claude Code runs in native Termux, not PRoot)
+  rish  Shizuku shell (~/bin/rish in Termux home)
+Intent-only actions (open URL/app) use termux-am / termux-open-url and need no backend.
+"""
+import json, os, re, shutil, subprocess, sys, time, xml.etree.ElementTree as ET
+
+TERMUX_BIN = "/data/data/com.termux/files/usr/bin"
+TERMUX_HOME = "/data/data/com.termux/files/home"
+SERIAL = os.environ.get("DROID_SERIAL", "127.0.0.1:5555")
+OUT = os.environ.get("DROID_OUT", os.path.join(os.environ.get("TMPDIR", "/tmp"), "droid"))
+os.makedirs(OUT, exist_ok=True)
+
+
+def run(cmd, inp=None, timeout=30):
+    return subprocess.run(cmd, input=inp, capture_output=True, timeout=timeout)
+
+
+def _try_adb():
+    if not shutil.which("adb"):
+        return None
+    run(["adb", "connect", SERIAL], timeout=10)
+    r = run(["adb", "-s", SERIAL, "shell", "id"], timeout=10)
+    return (lambda c: ["adb", "-s", SERIAL, "shell", c]) if r.returncode == 0 and b"uid=" in r.stdout else None
+
+
+def _try_root():
+    su = os.path.join(TERMUX_BIN, "su")
+    if not os.path.exists(su):
+        return None
+    r = run([su, "-c", "id"], timeout=15)
+    return (lambda c: [su, "-c", c]) if r.returncode == 0 and b"uid=0" in r.stdout else None
+
+
+def _try_rish():
+    rish = os.path.join(TERMUX_HOME, "bin", "rish")
+    if not os.path.exists(rish):
+        return None
+    r = run([rish, "-c", "id"], timeout=15)
+    return (lambda c: [rish, "-c", c]) if r.returncode == 0 else None
+
+
+PROBES = {"adb": _try_adb, "root": _try_root, "rish": _try_rish}
+_sh = None
+
+
+def sh_prefix():
+    global _sh
+    if _sh:
+        return _sh
+    order = [os.environ["DROID_BACKEND"]] if os.environ.get("DROID_BACKEND") else list(PROBES)
+    for name in order:
+        f = PROBES[name]()
+        if f:
+            _sh = (name, f)
+            return _sh
+    sys.exit("droid: no shell backend (adb/root/rish). Run `droid doctor`.")
+
+
+def sh(cmd, binary=False, timeout=30):
+    r = run(sh_prefix()[1](cmd), timeout=timeout)
+    if r.returncode != 0 and not r.stdout:
+        sys.exit(f"droid: `{cmd}` failed: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout if binary else r.stdout.decode(errors="replace")
+
+
+# ---------- perception ----------
+BOUNDS = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
+
+
+def dump_nodes():
+    xml = ""
+    for _ in range(3):
+        # rm first: a failed dump must not return the previous screen
+        xml = sh("rm -f /sdcard/droid_ui.xml; uiautomator dump /sdcard/droid_ui.xml >/dev/null 2>&1; cat /sdcard/droid_ui.xml 2>/dev/null", timeout=40)
+        if xml.lstrip().startswith("<?xml"):
+            break
+        time.sleep(1)
+    else:
+        sys.exit("droid: uiautomator dump failed (screen never idle?). Use `droid shot` instead.")
+    nodes = []
+    for n in ET.fromstring(xml).iter("node"):
+        text, desc = n.get("text", ""), n.get("content-desc", "")
+        rid = n.get("resource-id", "").split("/")[-1]
+        clickable = n.get("clickable") == "true" or n.get("long-clickable") == "true"
+        editable = n.get("class", "").endswith("EditText")
+        if not (text or desc or clickable or editable):
+            continue
+        m = BOUNDS.match(n.get("bounds", ""))
+        if not m:
+            continue
+        x1, y1, x2, y2 = map(int, m.groups())
+        if x2 <= x1 or y2 <= y1:
+            continue
+        nodes.append({"i": len(nodes), "text": text, "desc": desc, "id": rid,
+                      "cls": n.get("class", "").split(".")[-1], "pkg": n.get("package", ""),
+                      "click": clickable, "edit": editable,
+                      "x": (x1 + x2) // 2, "y": (y1 + y2) // 2})
+        if n.get("checkable") == "true":          # toggles/chips: expose their on/off state
+            nodes[-1]["checked"] = n.get("checked") == "true"
+    with open(os.path.join(OUT, "last_ui.json"), "w") as f:
+        json.dump(nodes, f)
+    return nodes
+
+
+def fmt(n):
+    label = n["text"] or n["desc"] or n["id"] or n["cls"]
+    flags = ("C" if n["click"] else "-") + ("E" if n["edit"] else "-")
+    return f'{n["i"]:>3} {flags} ({n["x"]},{n["y"]}) {label[:80]!r} [{n["cls"]}{"#" + n["id"] if n["id"] else ""}]'
+
+
+def find(nodes, q):
+    ql = q.lower()
+    exact = [n for n in nodes if ql in (n["text"].lower(), n["desc"].lower(), n["id"].lower())]
+    return exact or [n for n in nodes if ql in (n["text"] + " " + n["desc"] + " " + n["id"]).lower()]
+
+
+def foreground():
+    out = sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -2")
+    m = re.search(r"([\w.]+)/([\w.$]+)", out)
+    return m.group(0) if m else out.strip()
+
+
+# ---------- commands ----------
+def cmd_doctor(_):
+    print(f"adb binary: {shutil.which('adb') or 'missing (apt install adb)'}  serial={SERIAL}")
+    for name, f in PROBES.items():
+        try:
+            print(f"backend {name}: {'OK' if f() else 'unavailable'}")
+        except Exception as e:
+            print(f"backend {name}: error {e}")
+    for t in ("termux-am", "termux-open-url", "termux-notification", "termux-clipboard-set"):
+        print(f"{t}: {'yes' if os.path.exists(os.path.join(TERMUX_BIN, t)) else 'no'}")
+    tracer = re.search(r"TracerPid:\s*(\d+)", open("/proc/self/status").read())
+    print("in PRoot:", "yes (Magisk su not visible; use adb backend)" if tracer and tracer.group(1) != "0" else "no")
+
+
+def cmd_ui(a):
+    nodes = dump_nodes()
+    print("foreground:", foreground())
+    for n in nodes:
+        if a and a[0] == "--clickable" and not (n["click"] or n["edit"]):
+            continue
+        print(fmt(n))
+
+
+def cmd_find(a):
+    hits = find(dump_nodes(), " ".join(a))
+    print("\n".join(fmt(n) for n in hits) or "no match")
+
+
+def target(a):
+    """Resolve '<x> <y>' | '#<index from last ui>' | '<text query>' to coordinates."""
+    if len(a) == 2 and all(s.isdigit() for s in a):
+        return int(a[0]), int(a[1]), f"({a[0]},{a[1]})"
+    if a[0].startswith("#"):
+        nodes = json.load(open(os.path.join(OUT, "last_ui.json")))
+        n = nodes[int(a[0][1:])]
+        return n["x"], n["y"], fmt(n)
+    hits = find(dump_nodes(), " ".join(a))
+    if len(hits) != 1:
+        sys.exit("droid: query matched %d elements, refine or use #index:\n%s" % (len(hits), "\n".join(fmt(n) for n in hits[:15])))
+    return hits[0]["x"], hits[0]["y"], fmt(hits[0])
+
+
+def cmd_tap(a):
+    x, y, what = target(a)
+    sh(f"input tap {x} {y}")
+    print("tapped", what)
+
+
+def cmd_longtap(a):
+    x, y, what = target(a)
+    sh(f"input swipe {x} {y} {x} {y} 800")
+    print("long-tapped", what)
+
+
+def cmd_type(a):
+    text = " ".join(a)
+    if all(ord(c) < 128 for c in text):
+        esc = text.replace("\\", "\\\\").replace("'", "'\\''").replace(" ", "%s")
+        sh(f"input text '{esc}'")
+    else:  # input text cannot do non-ASCII (diacritics, emoji): go via clipboard + paste
+        clip = os.path.join(TERMUX_BIN, "termux-clipboard-set")
+        if not os.path.exists(clip):
+            sys.exit("droid: non-ASCII text needs termux-api (pkg install termux-api + Termux:API app)")
+        run([clip], inp=text.encode())
+        sh("input keyevent 279")  # KEYCODE_PASTE
+    print(f"typed {len(text)} chars")
+
+
+KEYS = {"back": 4, "home": 3, "recent": 187, "enter": 66, "del": 67, "menu": 82, "power": 26,
+        "up": 19, "down": 20, "left": 21, "right": 22, "tab": 61, "paste": 279, "wakeup": 224}
+
+
+def cmd_key(a):
+    sh(f"input keyevent {KEYS.get(a[0], a[0])}")
+    print("key", a[0])
+
+
+def cmd_swipe(a):
+    d = {"up": (540, 1600, 540, 600), "down": (540, 600, 540, 1600),
+         "left": (900, 1200, 150, 1200), "right": (150, 1200, 900, 1200)}
+    x1, y1, x2, y2 = d[a[0]] if a[0] in d else map(int, a[:4])
+    sh(f"input swipe {x1} {y1} {x2} {y2} 300")
+    print("swiped", a[0] if a[0] in d else a[:4])
+
+
+def cmd_shot(_):
+    path = os.path.join(OUT, f"shot_{int(time.time())}.png")
+    with open(path, "wb") as f:
+        f.write(sh("screencap -p", binary=True, timeout=40))
+    print(path)
+
+
+def cmd_open(a):
+    t = a[0]
+    if "://" in t:
+        r = run([os.path.join(TERMUX_BIN, "termux-open-url"), t])
+    else:
+        r = run(sh_prefix()[1](f"monkey -p {t} -c android.intent.category.LAUNCHER 1"))
+    print("opened", t, "" if r.returncode == 0 else r.stderr.decode(errors="replace"))
+
+
+def cmd_wait(a):
+    q, limit = " ".join(a[:-1]) if len(a) > 1 and a[-1].isdigit() else " ".join(a), int(a[-1]) if a[-1].isdigit() else 15
+    end = time.time() + limit
+    while time.time() < end:
+        hits = find(dump_nodes(), q)
+        if hits:
+            print("found", fmt(hits[0]))
+            return
+        time.sleep(1)
+    sys.exit(f"droid: {q!r} not on screen after {limit}s")
+
+
+def cmd_fg(_):
+    print(foreground())
+
+
+def cmd_sh(a):
+    print(sh(" ".join(a)), end="")
+
+
+CMDS = {"doctor": cmd_doctor, "ui": cmd_ui, "find": cmd_find, "tap": cmd_tap, "longtap": cmd_longtap,
+        "type": cmd_type, "key": cmd_key, "swipe": cmd_swipe, "shot": cmd_shot, "open": cmd_open,
+        "wait": cmd_wait, "fg": cmd_fg, "sh": cmd_sh}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in CMDS:
+        sys.exit("usage: droid " + "|".join(CMDS) + " [args]   (see SKILL.md)")
+    CMDS[sys.argv[1]](sys.argv[2:])

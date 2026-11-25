@@ -79,7 +79,7 @@ va_stop() {  # by pid file: pkill -f patterns can match the caller's own command
   tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'http_trigger\.py' || return 0
   kill "$pid" 2>/dev/null; sleep 1
 }
-AGENT_SSHD_CFG=${AGENT_SSHD_CFG:-/root/cliphist-android/assistant/agents/sshd_config}
+AGENT_SSHD_CFG=${AGENT_SSHD_CFG:-/root/android-assistant/agents/sshd_config}
 AGENT_KEYS=$P/state/agent_authorized_keys
 agent_sshd_up() { port_open 8023; }
 agent_sshd_start() {  # only after install.sh wrote the authorized key

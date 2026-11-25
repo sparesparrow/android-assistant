@@ -1,6 +1,6 @@
 # Phone agents: setup, Tasker path, debugging
 
-Sources live in `cliphist-android/assistant/agents/`:
+Sources live in `agents/` of the android-assistant repo (`/root/android-assistant/agents/`):
 
 | File | Role |
 |---|---|
@@ -34,7 +34,7 @@ The prompt never touches a command line (stdin all the way), so quoting cannot b
 ## Install / repair
 
 ```bash
-/root/cliphist-android/assistant/agents/install.sh      # agents, Termux scripts, key, termux.properties, sshd
+/root/android-assistant/agents/install.sh      # agents, Termux scripts, key, termux.properties, sshd
 /root/phone/tasker/import-claude-agents.sh              # Tasker tasks (tap YES on "Import Data")
 /root/phone/phone-services status                       # "agents   : sshd on 8023"
 ```
