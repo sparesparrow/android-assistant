@@ -43,6 +43,8 @@ command -v phone-services >/dev/null 2>&1 && phone-services ensure >/dev/null 2>
 
 exec 9>"$STATE/agent.lock"
 flock -w 600 9 || { log "busy: another agent kept the phone for 10 min"; notify "Claude $agent" "busy: another agent is using the phone"; exit 75; }
+# child agents must not take the lock again (they would wait on this runner)
+export PHONE_SCREEN_LOCK=held
 log "start (${#prompt} chars)"
 start=$(date +%s)
 out=$(cd /root && timeout 1800 claude --agent "$agent" -p "$prompt" </dev/null 2>>"$LOG"); rc=$?

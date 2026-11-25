@@ -55,3 +55,9 @@ def test_disabled_project_is_visible():
 def test_ambiguous_or_missing_names_stop():
     with pytest.raises(SystemExit):
         te.Config(RAW).find_task("Nope")
+
+
+def test_restore_accepts_only_tasker_config():
+    assert te.is_tasker_data('<?xml version="1.0"?><TaskerData sr="" ver="2"></TaskerData>')
+    assert not te.is_tasker_data("<?xml version='1.0'?><map><string name=\"qst0\">x</string></map>")
+    assert not te.is_tasker_data("not xml")

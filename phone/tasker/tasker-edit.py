@@ -88,10 +88,19 @@ def write_live(text: str, path: str = LIVE) -> None:
     # Tasker must have started after the write, or it is running the old config
     st = adb(f"su -c 'stat -c %Y {path}; p=$(pidof {PKG}); [ -n \"$p\" ] && stat -c %Y /proc/$p'").decode().split()
     if len(st) == 2 and int(st[1]) < int(st[0]):
-        sys.exit("Tasker started before the new file was written; run push again")
+        sys.exit("Tasker started before the new file was written. The live file already matches the "
+                 "work copy, so `push --force` is safe: it writes the same file and restarts Tasker")
 
 
 # ------------------------------------------------------------------ parsing
+def is_tasker_data(raw: str) -> bool:
+    """True for a Tasker config (autobackup.xml); False for prefs files and anything else."""
+    try:
+        return ET.fromstring(raw.encode()).tag == "TaskerData"
+    except ET.ParseError:
+        return False
+
+
 def tree(raw: str) -> ET.Element:
     return ET.fromstring(re.sub(r'"(?=[A-Za-z_][\w-]*=")', '" ', raw))
 
@@ -375,6 +384,9 @@ def main(argv=None):
         return 0
     if a.cmd == "restore":
         raw = Path(a.arg).read_text()
+        if not is_tasker_data(raw):        # e.g. a preffy-*.xml tile backup would wipe the config
+            sys.exit(f"{a.arg} is not a Tasker config backup (root element is not <TaskerData>); "
+                     "undo a tile change with `tile N TASK LABEL` instead")
         Config(raw)                        # must parse
         write_live(raw)
         print("restored", a.arg)
