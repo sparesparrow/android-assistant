@@ -1,0 +1,20 @@
+# sshd inside the Debian PRoot, for Tasker -> Termux -> PRoot agent runs only.
+# Started by `phone-services ensure`. Loopback, key-only, and every login runs the agent runner.
+Port 8023
+ListenAddress 127.0.0.1
+HostKey /etc/ssh/ssh_host_ed25519_key
+PidFile /root/phone/state/proot-sshd.pid
+AuthorizedKeysFile /root/phone/state/agent_authorized_keys
+PermitRootLogin forced-commands-only
+ForceCommand /root/cliphist-android/assistant/agents/run-agent.sh --ssh
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AllowTcpForwarding no
+X11Forwarding no
+PermitTTY no
+PermitTunnel no
+AllowAgentForwarding no
+UsePAM no
+StrictModes no
+LogLevel ERROR

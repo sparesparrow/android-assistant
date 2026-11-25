@@ -10,6 +10,8 @@
 #   phone-services test-mic [secs]   record from the mic and print levels
 #   phone-services native <cmd...>   run a command in NATIVE Termux (outside PRoot) over ssh
 #   phone-services ssh-key           create the PRoot key and authorize it in Termux
+#   (ensure also starts the agent sshd on 127.0.0.1:8023 once assistant/agents/install.sh ran:
+#    Tasker -> Termux -> ssh into this PRoot -> run-agent.sh)
 set -u
 P=${PHONE_DIR:-/root/phone}   # overridable for tests (test_phone_services.py)
 T=/data/data/com.termux/files
@@ -77,6 +79,15 @@ va_stop() {  # by pid file: pkill -f patterns can match the caller's own command
   tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'http_trigger\.py' || return 0
   kill "$pid" 2>/dev/null; sleep 1
 }
+AGENT_SSHD_CFG=${AGENT_SSHD_CFG:-/root/cliphist-android/assistant/agents/sshd_config}
+AGENT_KEYS=$P/state/agent_authorized_keys
+agent_sshd_up() { port_open 8023; }
+agent_sshd_start() {  # only after install.sh wrote the authorized key
+  [ -s "$AGENT_KEYS" ] && [ -x /usr/sbin/sshd ] || return 2
+  mkdir -p /run/sshd "$P/state"
+  /usr/sbin/sshd -f "$AGENT_SSHD_CFG" 8>&- 9>&- || return 1
+  for _ in 1 2 3; do sleep 1; agent_sshd_up && return 0; done; return 1
+}
 native() {
   [ -f "$KEY" ] || { echo "no key; run: phone-services ssh-key" >&2; return 1; }
   port_open 8022 || { echo "native sshd not running (open a new Termux session to start it)" >&2; return 1; }
@@ -91,6 +102,7 @@ case "${1:-status}" in
       adb_connect && echo "adb ok" || echo "adb down"
       pa_up && echo "mic ok" || { pa_start && echo "mic started" || echo "mic FAILED"; }
       va_up && echo "va-http ok" || { va_start && echo "va-http started" || echo "va-http FAILED"; }
+      agent_sshd_up && echo "agent-sshd ok" || { agent_sshd_start; case $? in 0) echo "agent-sshd started" ;; 2) ;; *) echo "agent-sshd FAILED" ;; esac; }
     } >>"$P/logs/ensure.log" 2>&1 ;;
   watch)  # keep things up while Debian runs (adbd restarts kill the mic server); one instance
     exec 8>"$P/logs/.watch.lock"; flock -n 8 || exit 0
@@ -100,7 +112,9 @@ case "${1:-status}" in
     pa_up && echo "mic      : OK (pulse 127.0.0.1:4713, OpenSL_ES_source)" || echo "mic      : DOWN"
     va_up && echo "va-http  : OK (127.0.0.1:8780, token in $VA/state/http-token)" || echo "va-http  : DOWN"
     port_open 8022 && echo "native   : sshd on 8022$( native true 2>/dev/null && echo ', key login OK' || echo ', key login FAILED')" \
-                   || echo "native   : sshd not running" ;;
+                   || echo "native   : sshd not running"
+    agent_sshd_up && echo "agents   : sshd on 8023 (Tasker -> PRoot agent runs)" \
+                  || { [ -s "$AGENT_KEYS" ] && echo "agents   : sshd DOWN" || echo "agents   : not installed (assistant/agents/install.sh)"; } ;;
   pa-restart) shift; pa_start "${1:-}" && echo "mic server up" ;;
   pa-stop) pa_kill && echo stopped || echo "still running" ;;
   va-restart) va_stop; va_start && echo "va-http up on 8780" ;;

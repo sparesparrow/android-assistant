@@ -92,12 +92,14 @@ def test_status_all_up(ps):
     assert out[1].startswith("mic      : OK")
     assert out[2].startswith("va-http  : OK")
     assert out[3] == "native   : sshd on 8022, key login OK"
+    assert out[4] == "agents   : not installed (assistant/agents/install.sh)"
 
 
 def test_status_all_down(ps):
     out = ps("status", STUB_PORTS="").stdout.splitlines()
     assert out == ["adb      : DOWN (port 5555 closed)", "mic      : DOWN",
-                   "va-http  : DOWN", "native   : sshd not running"]
+                   "va-http  : DOWN", "native   : sshd not running",
+                   "agents   : not installed (assistant/agents/install.sh)"]
 
 
 def test_status_reports_open_port_when_adb_down(ps):

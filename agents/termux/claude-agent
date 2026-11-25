@@ -1,0 +1,28 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Native Termux side of the phone agents. Tasker runs it through Termux's RUN_COMMAND intent
+# (com.termux.RUN_COMMAND_PATH = this script or an agent-<name> wrapper, the prompt in
+# com.termux.RUN_COMMAND_STDIN, RUN_COMMAND_BACKGROUND = true).
+#
+#   claude-agent <agent> [origin]  < prompt
+#
+# Claude Code lives in the Debian PRoot. If the PRoot is running, its sshd (127.0.0.1:8023,
+# key-only, forced command run-agent.sh --ssh) takes the job, so the agent runs beside the
+# phone services already up there. Otherwise a fresh `proot-distro login` runs it.
+agent=${1:-}; origin=${2:-tasker}
+case $agent in ''|*[!a-z0-9-]*) echo "usage: claude-agent <agent> [origin] < prompt" >&2; exit 2 ;; esac
+case $origin in tasker|shell|ssh) ;; *) origin=tasker ;; esac
+PORT=${PROOT_SSH_PORT:-8023}
+KEY=$HOME/.ssh/proot_agent_ed25519
+LOG=$HOME/.termux/tasker/claude-agent.log
+RUNNER=/root/cliphist-android/assistant/agents/run-agent.sh
+echo "$(date '+%F %T') $agent $origin" >>"$LOG"
+
+if [ -f "$KEY" ] && timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/$PORT" 2>/dev/null; then
+  exec ssh -q -p "$PORT" -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts_proot" \
+    root@127.0.0.1 "$agent $origin" 2>>"$LOG"
+fi
+echo "$(date '+%F %T') PRoot sshd not up; proot-distro login" >>"$LOG"
+exec proot-distro login debian --shared-tmp \
+  --bind /data/data/com.termux/files/apps:/data/data/com.termux/files/apps \
+  -- "$RUNNER" "$agent" "$origin" 2>>"$LOG"

@@ -1,0 +1,74 @@
+[
+{
+"i": 0,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "ai.perplexity.app.android",
+"click": true,
+"edit": false,
+"x": 1201,
+"y": 540
+},
+{
+"i": 1,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "ai.perplexity.app.android",
+"click": true,
+"edit": false,
+"x": 1202,
+"y": 337
+},
+{
+"i": 2,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "ai.perplexity.app.android",
+"click": true,
+"edit": false,
+"x": 1202,
+"y": 327
+},
+{
+"i": 3,
+"text": "Review this dependency upgrade: list the breaking changes in marked between 4.3.0 and 16.4.1 that affect these call sites (API renames, removed options like sanitize/headerIds/mangle, ESM/async changes, Node version), what code changes are needed, and security notes. Cite sources. Be concise.\n\nCONTEXT (everything you need is below; the repository is public)\n\nRepo: github.com/sparesparrow/sparrow-a",
+"desc": "",
+"id": "input-search",
+"cls": "EditText",
+"pkg": "ai.perplexity.app.android",
+"click": true,
+"edit": true,
+"x": 1162,
+"y": 292
+},
+{
+"i": 4,
+"text": "",
+"desc": "",
+"id": "send-button",
+"cls": "View",
+"pkg": "ai.perplexity.app.android",
+"click": true,
+"edit": false,
+"x": 1967,
+"y": 352
+},
+{
+"i": 5,
+"text": "",
+"desc": "Send",
+"id": "",
+"cls": "View",
+"pkg": "ai.perplexity.app.android",
+"click": false,
+"edit": false,
+"x": 1967,
+"y": 352
+}
+]

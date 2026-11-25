@@ -4,6 +4,7 @@ phone/pa/bundle/
 phone/logs/
 phone/known_hosts
 phone/state/
+phone/recordings/
 mcp/.venv/
 voice/logs/
 voice/state/

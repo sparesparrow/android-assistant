@@ -1,0 +1,122 @@
+[
+{
+"i": 0,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 540,
+"y": 1840
+},
+{
+"i": 1,
+"text": "Continue with Google",
+"desc": "",
+"id": "",
+"cls": "TextView",
+"pkg": "com.moonshot.kimichat",
+"click": false,
+"edit": false,
+"x": 540,
+"y": 1840
+},
+{
+"i": 2,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 540,
+"y": 1990
+},
+{
+"i": 3,
+"text": "Phone login",
+"desc": "",
+"id": "",
+"cls": "TextView",
+"pkg": "com.moonshot.kimichat",
+"click": false,
+"edit": false,
+"x": 540,
+"y": 1990
+},
+{
+"i": 4,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 120,
+"y": 2190
+},
+{
+"i": 5,
+"text": "",
+"desc": "Not selected",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": false,
+"edit": false,
+"x": 120,
+"y": 2190
+},
+{
+"i": 6,
+"text": "I have read and agree to《Terms of Service》and《Privacy Policy》",
+"desc": "",
+"id": "",
+"cls": "TextView",
+"pkg": "com.moonshot.kimichat",
+"click": false,
+"edit": false,
+"x": 565,
+"y": 2189
+},
+{
+"i": 7,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 540,
+"y": 175
+},
+{
+"i": 8,
+"text": "",
+"desc": "",
+"id": "",
+"cls": "View",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 95,
+"y": 175
+},
+{
+"i": 9,
+"text": "Feedback",
+"desc": "",
+"id": "",
+"cls": "TextView",
+"pkg": "com.moonshot.kimichat",
+"click": true,
+"edit": false,
+"x": 924,
+"y": 176
+}
+]
