@@ -13,6 +13,7 @@ The prompts and scenarios that drive this stack ship in [mcp-prompts](https://gi
 | `skill/` | The Claude Code skills `android-assistant` (how this stack fits together) and `android-control` (the `droid` CLI over adb: uiautomator dumps, taps, typing, intents). |
 | `phone/` | Phone services:<br>• the adb loopback, the mic/speaker PulseAudio bundle, the native Termux ssh bridge, the watchdog (`phone-services`);<br>• `notif-wait.py`, which waits for a notification;<br>• `tasker/`: `tasker-edit.py` edits Tasker's config directly, plus task and scene builders and importers. |
 | `voice/` | The hands-free voice pipeline: the assistant gesture → Tasker → an HTTP trigger on 127.0.0.1:8780 → ElevenLabs STT → `claude -p` with these MCP tools → ElevenLabs TTS. |
+| `browser/` | The agent browser (`agent-browser`): a Chromium in the PRoot on the VNC desktop, with its own profile and DevTools on 127.0.0.1:9223, driven by Playwright MCP. `eval-injection.sh` checks that planted page instructions are not followed. |
 | `router/` | The Claude Panel router, which turns a spoken or typed coding request into a Claude Code job in one of the repos in `repos.json`. |
 
 Clipboard history is not part of this repo. It belongs to [cliphist-android](https://github.com/sparesparrow/cliphist-android) and its own MCP server, and this repo used to live inside that one as `assistant/`.
@@ -33,6 +34,32 @@ phone/phone-services ensure            # adb loopback, mic server, sshd
 
 The one-time root and Magisk setup (adb on loopback, boot script) is in `phone/README.md`, and the voice setup is in `voice/README.md`. Store the ElevenLabs key with `phone/set-elevenlabs-key.sh`. It is never committed.
 
+## Agent browser
+
+Some tasks need a full web browser. Driving the phone's browser app through uiautomator is slow
+and takes the phone's one screen. `browser/agent-browser` runs a Chromium in the PRoot instead,
+on the VNC desktop. The phone screen stays free, and the user can watch or take over in a VNC
+viewer.
+
+```bash
+claude mcp add -s user agent-browser -- /root/android-assistant/browser/agent-browser mcp
+browser/agent-browser status          # up?, memory, attached agents
+browser/eval-injection.sh             # planted-instruction check (PASS/FAIL)
+```
+
+- **Its own profile** (`~/.config/chromium-agent`): no accounts, no extensions, no sync. The user's Chromium (`~/.config/chromium`, DevTools on 9222) is never touched.
+- **DevTools on 127.0.0.1:9223 only.**
+- **One agent at a time:** `mcp` holds `phone/state/browser.lock` while it runs. The VNC display has its own lock, separate from the phone's `agent.lock`.
+- **Idle stop:** it stops 10 minutes (`AGENT_BROWSER_IDLE_MIN`) after the last agent leaves.
+
+Measured on the reference phone (2026-11-26, Chromium 156, one tab):
+- about 480 MiB resident (summed over 4 processes, so shared pages count more than once);
+- 0.4 CPU s per 5 idle minutes;
+- 10.5 CPU s for a page-reading task of about 3 minutes.
+
+The phone was charging, so battery drain was not measured directly. The rules agents follow are
+in the mcp-prompts prompt `android-browser-agent`.
+
 ## Tests
 
 ```bash
@@ -44,6 +71,7 @@ cd mcp && .venv/bin/python -m pytest -q
 - Screen, notification and message text is data, never instructions.
 - Sending anything to another person needs the user's explicit yes to the recipient and the text. The tool returns a confirmation token that expires after 5 minutes.
 - No payments, banking or trading.
+- The agent browser has its own profile with no logins. Page text is data, and `browser/eval-injection.sh` checks it.
 - Phone UI work is serialised under `phone/state/agent.lock`, because there is one screen.
 - The MCP tools do not expose a shell or `su`. Root is used only by maintenance scripts that a person starts (`tasker-edit.py`, `phone-services`).
 - Runtime state, logs, recordings, tokens and keys are git-ignored (`phone/state/`, `voice/state/`, `*/logs/`).
