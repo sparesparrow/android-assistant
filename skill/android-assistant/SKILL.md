@@ -48,13 +48,15 @@ cliphist, 8780 voice trigger (X-Token), 8000 MIA, 1883 MQTT.
   Research`, `Create images`/`Generate Image`, `Videos`, `Music`, `Canvas`, `Guided Learning`;
   a leading `+` is fine), send, wait for the answer; returns JSON with `reply`. `read_aloud`
   presses Play under the answer. Deep Research is started and runs for minutes.
-- `gemini_reply(wait_s=0, read_aloud=False)` — read (or play) the answer on screen later.
+- `gemini_reply(wait_s=0, read_aloud=False, scroll=0)` — read (or play) the answer on screen
+  later; `scroll=1..5` swipes up first (only while Gemini is in front) for more of a long answer.
 - `ask_ai(app, prompt, mode="", send=True, wait_s=60, return_to_previous=False)` — `app` one of
   `deepseek`, `kimi`, `grok`, `chatgpt`, `perplexity`; same share-intent mechanism as Gemini.
   Modes: deepseek `+DeepThink` `+Search`; kimi `+Thinking` `+Search`; grok `+Think`
   `+DeepSearch`; chatgpt `+Search` `+Deep Research`; perplexity `+Pro` `+Research`. Returns JSON
   `{"app", "mode", "sent", "reply"}` (+ `"sources"` for perplexity). Same privacy rule as Gemini.
-- `ai_reply(app, wait_s=0)` — read that app's answer on screen later.
+- `ai_reply(app, wait_s=0, scroll=0)` — read that app's answer on screen later; `scroll` as for
+  `gemini_reply`. The advisor agents have no `act`: they scroll this way, and hand UI steps to `phone`.
 - Gemini Notebooks (NotebookLM app; `notebook` = notebook.google.com link or id, empty = the
   shared agent notebook "Shared agent session"):
   `notebook_ask(prompt, notebook, send, wait_s, save_note)` answers grounded in its sources;

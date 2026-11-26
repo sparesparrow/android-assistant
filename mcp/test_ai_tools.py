@@ -106,3 +106,37 @@ def test_annotations(srv):
     assert tools["ai_reply"].annotations.read_only_hint is True
     assert tools["ask_ai"].annotations.read_only_hint is False
     assert tools["ask_ai"].annotations.open_world_hint is True
+
+
+@pytest.fixture()
+def on_screen(srv, monkeypatch):
+    """ai_reply with scroll: the app is in front; swipes and the final read land in one log."""
+    log = []
+    monkeypatch.setattr(srv.time, "sleep", lambda s: None)
+    monkeypatch.setattr(chatbots, "nodes", lambda: [{"pkg": chatbots.PROFILES["kimi"]["pkg"]}])
+    monkeypatch.setattr(srv, "_run", lambda cmd, timeout=30, inp=None: log.append(cmd[1:]) or (0, "ok"))
+    monkeypatch.setattr(chatbots, "reply", lambda app: log.append(["reply", app])
+                        or {"app": app, "reply": "more", "generating": False})
+    return log
+
+
+@pytest.mark.parametrize("given,swipes", [(0, 0), (1, 1), (2, 2), (99, 5), (-3, 0)])
+def test_ai_reply_scroll_swipes_up_bounded_then_reads(srv, on_screen, given, swipes):
+    r = json.loads(srv.ai_reply("kimi", scroll=given))
+    assert r["reply"] == "more"
+    assert on_screen == [["swipe", "up"]] * swipes + [["reply", "kimi"]]
+    assert swipes <= srv.SCROLL_MAX
+
+
+def test_ai_reply_scroll_never_swipes_outside_the_app(srv, on_screen, monkeypatch):
+    assert "unknown chat app" in srv.ai_reply("clippy", scroll=2)
+    monkeypatch.setattr(chatbots, "nodes", lambda: [{"pkg": "com.termux"}])
+    assert srv.ai_reply("grok", scroll=2) == "grok is not on screen; open it (or ask it something) first"
+    assert on_screen == []
+
+
+def test_reply_tools_offer_scroll_instead_of_act(srv):
+    tools = {t.name: t for t in srv.mcp._tool_manager.list_tools()}
+    for name in ("ai_reply", "gemini_reply"):
+        assert "scroll" in tools[name].parameters["properties"]
+        assert "`act`" not in tools[name].description

@@ -117,6 +117,25 @@ def test_ask_gemini_rejects_unknown_tool_before_touching_phone(srv):
     assert not srv.calls
 
 
+@pytest.mark.parametrize("given,swipes", [(0, 0), (1, 1), (3, 3), (50, 5), (-1, 0)])
+def test_gemini_reply_scroll_swipes_up_bounded_then_reads(srv, monkeypatch, given, swipes):
+    log = []
+    monkeypatch.setattr(srv.time, "sleep", lambda s: None)
+    monkeypatch.setattr(srv, "_run", lambda cmd, timeout=30, inp=None: log.append(cmd[1:]) or (0, "ok"))
+    monkeypatch.setattr(gemini, "nodes", lambda: log.append(["ui"]) or [{"pkg": next(iter(gemini.GEMINI_PKGS))}])
+    monkeypatch.setattr(gemini, "chat_text", lambda ns: "answer")
+    assert srv.gemini_reply(scroll=given) == "answer"
+    assert log == [["ui"]] + [["swipe", "up"]] * swipes + ([["ui"]] if swipes else [])
+    assert swipes <= srv.SCROLL_MAX
+
+
+def test_gemini_reply_scroll_never_swipes_outside_gemini(srv, monkeypatch):
+    monkeypatch.setattr(srv.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gemini, "nodes", lambda: [{"pkg": "com.termux"}])
+    assert "Gemini is not on screen" in srv.gemini_reply(scroll=3)
+    assert not srv.calls
+
+
 @pytest.mark.parametrize("action,arg,seconds,expect", [
     ("open_file", "/etc/passwd", 1, "under /sdcard"),
     ("open_file", "/sdcard/../etc/passwd", 1, "under /sdcard"),
