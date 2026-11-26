@@ -108,6 +108,8 @@ def dump_nodes():
                       "x": (x1 + x2) // 2, "y": (y1 + y2) // 2})
         if n.get("checkable") == "true":          # toggles/chips: expose their on/off state
             nodes[-1]["checked"] = n.get("checked") == "true"
+        if editable and n.get("focused") == "true":
+            nodes[-1]["focused"] = True
     with open(os.path.join(OUT, "last_ui.json"), "w") as f:
         json.dump(nodes, f)
     return nodes
@@ -140,7 +142,9 @@ def cmd_doctor(_):
         except Exception as e:
             print(f"backend {name}: error {e}")
     for t in ("termux-am", "termux-open-url", "termux-notification", "termux-clipboard-set"):
-        print(f"{t}: {'yes' if os.path.exists(os.path.join(TERMUX_BIN, t)) else 'no'}")
+        have = os.path.exists(os.path.join(TERMUX_BIN, t))
+        note = " (optional: non-ASCII typing uses the share sheet without it)" if t == "termux-clipboard-set" and not have else ""
+        print(f"{t}: {'yes' if have else 'no'}{note}")
     tracer = re.search(r"TracerPid:\s*(\d+)", open("/proc/self/status").read())
     print("in PRoot:", "yes (Magisk su not visible; use adb backend)" if tracer and tracer.group(1) != "0" else "no")
 
@@ -192,11 +196,63 @@ def cmd_type(a):
         sh(f"input text '{esc}'")
     else:  # input text cannot do non-ASCII (diacritics, emoji): go via clipboard + paste
         clip = os.path.join(TERMUX_BIN, "termux-clipboard-set")
-        if not os.path.exists(clip):
-            sys.exit("droid: non-ASCII text needs termux-api (pkg install termux-api + Termux:API app)")
-        run([clip], inp=text.encode())
+        if os.path.exists(clip):
+            run([clip], inp=text.encode())
+        else:
+            # The field loses focus while the share sheet is up, and the screen moves when the
+            # keyboard drops, so find the field again afterwards and tap where it is now.
+            was = next((n for n in dump_nodes() if n.get("focused")), None)
+            clip_via_share_sheet(text)
+            if was:
+                field = refind_field(was, dump_nodes())
+                if field and not field.get("focused"):
+                    sh(f"input tap {field['x']} {field['y']}")
+                    time.sleep(0.5)
         sh("input keyevent 279")  # KEYCODE_PASTE
     print(f"typed {len(text)} chars")
+
+
+def refind_field(was, nodes):
+    """The text field that had focus before, on the screen as it is now: the same resource id
+    in the same app, or the only text field of that app. None rather than a guess."""
+    fields = [n for n in nodes if n["edit"] and n["pkg"] == was["pkg"]]
+    same = [n for n in fields if was["id"] and n["id"] == was["id"]]
+    pick = same if len(same) == 1 else fields if len(fields) == 1 else []
+    return pick[0] if pick else None
+
+
+def _copy_button(nodes):
+    return next((n for n in nodes if n["id"] == "copy" and n["pkg"].endswith("intentresolver")), None)
+
+
+def clip_via_share_sheet(text):
+    """Put text on the clipboard without Termux:API: open the system share sheet for it and tap
+    its Copy button. Only ever the element with id "copy": the sheet also lists people to share
+    with, so a tap anywhere else could send the text. The sheet slides up after it is drawn, so
+    the button is tapped only once two reads agree on where it is; a tap that opens Quick Share
+    (which sits below Copy) is backed out of with nothing sent. Clipboard managers record the text."""
+    from urllib.parse import quote
+    intent = ("intent:#Intent;action=android.intent.action.SEND;type=text/plain;"
+              "S.android.intent.extra.TEXT=" + quote(text, safe="") + ";end")
+    for _ in range(2):
+        sh(f"am start -a android.intent.action.CHOOSER --eu android.intent.extra.INTENT '{intent}'")
+        copy, end = None, time.time() + 12
+        while time.time() < end:
+            time.sleep(0.7)
+            again = _copy_button(dump_nodes())
+            if copy and again and (again["x"], again["y"]) == (copy["x"], copy["y"]):
+                break
+            copy = again
+        else:
+            copy = None
+        if copy:
+            sh(f"input tap {copy['x']} {copy['y']}")
+            time.sleep(1.0)
+            if "nearby.sharing" not in foreground():
+                return
+        sh("input keyevent 4")  # BACK: out of the sheet or Quick Share, nothing sent
+        time.sleep(1.0)
+    sys.exit("droid: could not copy the text through the share sheet (install Termux:API to avoid it)")
 
 
 KEYS = {"back": 4, "home": 3, "recent": 187, "enter": 66, "del": 67, "menu": 82, "power": 26,
