@@ -40,8 +40,8 @@ cliphist, 8780 voice trigger (X-Token), 8000 MIA, 1883 MQTT.
   returns a preview and a token; repeat with `confirm=<token>` only after the user's explicit yes.
   `mqtt_publish` to `mia/lights/*` runs directly.
 - `wait_event(kind, match="", timeout_s=60)` — wait on MQTT `phone/events/<kind>` (published by
-  Tasker, e.g. a Deep Research notification) instead of polling; JSON events, untrusted data
-  (`docs/event-bus.md`).
+  Tasker project "Event Bus": `notification` from allowlisted apps, `battery`, `bluetooth`)
+  instead of polling; JSON events, untrusted data (`docs/event-bus.md`).
 - `speak(text)` — say text on the phone speaker (ElevenLabs TTS, cut at 1000 characters).
 - `listen(max_s=8)` — beep, record the phone mic until a pause (1..30 s), return JSON
   `{"text", "language"}` or "no speech heard".
@@ -110,5 +110,11 @@ hands off. Setup, debugging and adding an agent: `references/agents.md`.
 - Latency per turn: `tail /root/voice-assistant/logs/latency.log`.
 - Tasker setup and the assistant gesture: `references/voice-pipeline.md`.
 - Gemini by hand: `assistant/mcp/.venv/bin/python assistant/mcp/gemini.py "q" --tool "+Deep Research" --no-send`.
+- Deep Research done: after `ask_gemini(..., tool="Deep Research", wait_s=0)`, prefer
+  `wait_event("notification", match="research|výzkum", timeout_s=1500)`, then `gemini_reply()`.
+  If it returns plain text instead of JSON (the bus is not set up), fall back to
+  `/root/phone/notif-wait.py --pkg com.google.android.apps.bard --match 'research|výzkum' --timeout 1500`.
+  On `"reason": "timeout"`, check once with `gemini_reply()` or `notif-wait.py --list`.
+  Setting up the bus (Tasker "Event Bus", broker ACL): `references/agents.md`.
 - Other AI apps by hand: `assistant/mcp/.venv/bin/python assistant/mcp/chatbots.py deepseek "q" --no-send [--dump DIR]`.
 - Agent from the shell: `echo "q" | /root/android-assistant/agents/run-agent.sh gemini`; log `/root/phone/logs/agents.log`.

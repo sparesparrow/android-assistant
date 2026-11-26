@@ -62,6 +62,39 @@ line contains the pattern; stop it by `/root/phone/state/proot-sshd.pid`.
    add a dialog hint to `HINTS` in build-claude-agents.py).
 3. Test: `claude --agent <name> -p "..."`, then the Termux path (step 3 above).
 
+## Phone events (MQTT event bus)
+
+Instead of polling the screen or `notif-wait.py`, agents wait with `wait_event(kind, match,
+timeout_s)` on `phone/events/<kind>`. The full design is in `docs/event-bus.md`. Tasker
+publishes; agents only subscribe.
+
+```
+Tasker "Event Bus" profile → task "EB …" (JavaScriptlet, JSON.stringify)
+→ Termux RUN_COMMAND: PATH ~/.termux/tasker/event-<kind>, the event JSON in RUN_COMMAND_STDIN
+→ proot-distro login debian -- event-publish.sh <kind>   (the 8023 sshd runs only agents)
+→ mosquitto_pub -t phone/events/<kind> -s   (payload on stdin, compact single line, not retained)
+```
+
+```bash
+/root/phone/tasker/import-event-bus.sh [--car-bt NAME] [--allow PKG]   # wrappers + Tasker import (tap YES)
+mosquitto_sub -v -t 'phone/events/#'                                   # watch, in a second shell
+printf '%s' '{"kind":"battery","source_pkg":"android","title":"test","text":"","when":0,"id":"t1"}' |
+  phone-services native '~/.termux/tasker/event-battery'              # the path without Tasker
+```
+
+- Notifications are published only for allowlisted packages, by default
+  `com.google.android.apps.bard` (Gemini). The AutoNotification Intercept profile is made in
+  Tasker's UI with task "EB Notification".
+- Verify on the phone: the Tasker state codes, the AutoNotification variables, and which package
+  posts the Deep Research notification (`notif-wait.py --list`).
+- Errors: `~/.termux/tasker/event-publish.log` (Termux).
+- Broker ACL (`phone/mqtt/*.example`): `phone-tasker` may only write `phone/events/#`, and
+  `phone-agent` may only read it (plus write `mia/#` and `zigbee2mqtt/#`). Installing it is the
+  owner's step.
+- Deep Research in the `gemini` agent: `wait_event("notification", match="research|výzkum",
+  timeout_s=1500)`, then `gemini_reply`. If the bus is not set up, report it as running and
+  wait with `notif-wait.py` from a shell.
+
 ## Other AI apps
 
 Agents `deepseek`, `kimi`, `grok`, `chatgpt` and `perplexity` each drive their own app through

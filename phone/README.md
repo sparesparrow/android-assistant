@@ -27,6 +27,10 @@ way out to native Termux.
 | `termux/bashrc.snippet` | Termux `~/.bashrc`: `~/bin` on PATH + start loopback sshd |
 | `root/setup-boot.sh` | Magisk boot script: mic server + sshd at boot |
 | `/etc/profile.d/phone-services.sh` | Debian login: env vars + `phone-services ensure` in background |
+| `notif-wait.py` | wait for an Android notification by adb polling (fallback when the event bus is not set up) |
+| `tasker/build-event-bus.py`, `tasker/import-event-bus.sh` | Tasker project "Event Bus" (battery, power, car Bluetooth, allowlisted notifications) and its Termux wrappers `~/.termux/tasker/event-<kind>` |
+| `tasker/event-publish.sh` | one JSON event on stdin → checked, compacted → `mosquitto_pub` to `phone/events/<kind>` (`docs/event-bus.md`) |
+| `mqtt/acl.example`, `mqtt/event-bus.conf.example` | example broker ACL and settings: Tasker writes `phone/events/#` only, agents read it only; installing them is the owner's step |
 | `logs/` | `ensure.log`, `test-mic.wav` |
 
 ## Autostart
