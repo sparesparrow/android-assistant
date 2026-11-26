@@ -8,7 +8,8 @@ Tasker: Record Audio ─► /sdcard/VoiceAssistant/in.m4a
        └─ proot-distro debian ─► /root/voice-assistant/assistant.sh
             1. ElevenLabs Scribe (scribe_v2)       speech → text
             2. claude -p  + system prompt `phone-voice-assistant` from mcp-prompts
-                 tools: android-assistant MCP, mcp-prompts, WebSearch, WebFetch only
+                 tools: android-assistant MCP, mcp-prompts, WebSearch, WebFetch only,
+                 plus read-only clipboard history once it is set up (see below)
                  (dontAsk + --strict-mcp-config mcp.json; see the skill's voice-pipeline.md)
             3. ElevenLabs TTS (eleven_flash_v2_5)   text → mp3
        ◄─ %stdout = /sdcard/VoiceAssistant/reply-<time>.mp3
@@ -136,3 +137,20 @@ Long-press power opens it.
 - **Jobs**: when the job ends (draft PR, answer, no changes, failed), the phone speaks it
   (`router/say.sh`) and posts a notification. Settings: `PANEL_AGENT_TIMEOUT` (default
   1800 s), `PANEL_AGENT_MODEL` and `PANEL_WORK_DIR`.
+
+## Clipboard history (optional)
+
+"What did I just copy?" works once the cliphist-android local API and its MCP server are set
+up. Until then the turn runs without them. `assistant.sh` adds `mcp.cliphist.json` and the
+four read-only tools (`get_clipboard_history`, `search_clipboard`, `get_clipboard_item`,
+`get_clipboard_stats`; not `add_to_clipboard`) only when both of these exist:
+
+- `voice/state/cliphist-token`: the Bearer token the app's API was started with. Make one with
+  `head -c 24 /dev/urandom | base64 >voice/state/cliphist-token; chmod 600 voice/state/cliphist-token`.
+  It is never committed; `cliphist-mcp.sh` passes it to the server in the environment only.
+- `/root/cliphist-android/mcp-server/dist/index.js`: `cd mcp-server && npm ci && npm run build`.
+
+The app must run `LocalApiService` on 127.0.0.1:8765 with the same token (Intent extra
+`api_token`). The service is not exported and nothing in the app starts it yet, so for now
+that takes a root `am start-foreground-service`. Item content is untrusted data: the app
+redacts one-time codes, passwords and tokens (`SecretRedactor`) before items leave it.

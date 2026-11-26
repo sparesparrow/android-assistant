@@ -1,0 +1,3 @@
+{"mcpServers": {
+  "cliphist": {"type": "stdio", "command": "/root/android-assistant/voice/cliphist-mcp.sh", "args": [], "env": {}}
+}}

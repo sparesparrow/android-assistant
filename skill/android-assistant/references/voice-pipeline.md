@@ -11,7 +11,8 @@ assistant gesture / Quick Settings tile / widget
               3. claude -p --resume --output-format stream-json --verbose --include-partial-messages
                                           prompt `phone-voice-assistant` (mcp-prompts),
                                           tools: android-assistant (not speak/listen),
-                                          mcp-prompts, WebSearch, WebFetch
+                                          mcp-prompts, WebSearch, WebFetch,
+                                          cliphist read tools when set up
               4. stream_speak.py          first complete sentence ─► eleven.py tts ─► play
                                           while Claude goes on; then the rest of the reply
             (fallback: if streamed TTS fails, the whole reply is synthesized and played)
@@ -28,7 +29,10 @@ Isolation: the turn's `claude -p` gets `--permission-mode dontAsk` (every tool n
 --mcp-config voice/mcp.json` (only android-assistant and mcp-prompts; no claude.ai connectors,
 no other servers), `--setting-sources project,local` (skips user settings and plugins) and
 `--tools WebSearch,WebFetch` (no other built-in tools). The init event's servers and tools go
-to `logs/assistant.log` (`stream_speak: init`). Clipboard history is not wired in yet.
+to `logs/assistant.log` (`stream_speak: init`). Clipboard history is opt-in: with a token in
+`voice/state/cliphist-token` and the built cliphist-android MCP server, `assistant.sh` also
+loads `voice/mcp.cliphist.json` (server `cliphist`, started by `voice/cliphist-mcp.sh`) and
+allows its four read-only tools; `add_to_clipboard` stays denied. Setup: `voice/README.md`.
 
 Latency: each turn appends one line to `voice/logs/latency.log`, also when it fails:
 `outcome` (ok, tts_fallback, claude_failed, error), model, mode and
