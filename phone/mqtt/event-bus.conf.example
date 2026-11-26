@@ -1,0 +1,22 @@
+# Mosquitto settings for the phone event bus: example, merge into the broker's existing config
+# (e.g. Debian /etc/mosquitto/conf.d/event-bus.conf). Do not add a second `listener 1883` if
+# the config already has one. Installing it and restarting the broker is the owner's step.
+# Paths are examples; keep the password and ACL files out of git (mode 600 / 644).
+
+# Loopback only: Tasker (through Termux/PRoot) and the agents all run on the phone.
+listener 1883 127.0.0.1
+
+# true keeps credential-less local clients (MIA, zigbee2mqtt) on the anonymous lines of the
+# ACL; false once every client logs in. Mosquitto 2 defaults to false: set it explicitly.
+allow_anonymous true
+
+# Users phone-tasker and phone-agent. Create without a password on the command line
+# (mosquitto_passwd prompts):
+#   mosquitto_passwd -c /etc/mosquitto/passwd phone-tasker
+#   mosquitto_passwd    /etc/mosquitto/passwd phone-agent
+password_file /etc/mosquitto/passwd
+
+# phone/mqtt/acl.example, copied and adjusted.
+acl_file /etc/mosquitto/acl
+
+# No retained messages are used on phone/events/# (publishers never set -r).

@@ -1,0 +1,28 @@
+# Mosquitto ACL for the phone's local broker: example, not installed by any script here.
+# Installing it is the owner's step (docs/event-bus.md, "Broker ACL"). Event bus: mcp-prompts#140.
+#
+# Mosquitto ACLs only grant: a topic not granted to a client is refused (publish dropped,
+# subscription refused). There is no "deny" line. So every prefix the phone's local clients use
+# must be listed below, or that client stops working.
+
+# --- Anonymous clients (lines before the first `user`; needs allow_anonymous true) ----------
+# Keeps today's credential-less clients working: MIA, zigbee2mqtt, and the android-assistant
+# MCP server until it has credentials (mqtt_publish allows only mia/* and zigbee2mqtt/*).
+# Add a line for every other prefix your local clients use (watch `mosquitto_sub -v -t '#'`
+# for a while before enabling the ACL). Nothing on phone/events/# for anonymous clients: they
+# can neither fake an event nor read one.
+topic readwrite mia/#
+topic readwrite zigbee2mqtt/#
+
+# --- Tasker publisher (phone/tasker/event-publish.sh) ---------------------------------------
+# Publish only, and only phone events.
+user phone-tasker
+topic write phone/events/#
+
+# --- Agents (android-assistant MCP server: wait_event, mqtt_publish) ------------------------
+# Read the phone events, never publish them. Write what mqtt_publish already allows (its own
+# allowlist and confirmations still apply on top).
+user phone-agent
+topic read phone/events/#
+topic write mia/#
+topic write zigbee2mqtt/#
