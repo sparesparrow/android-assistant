@@ -214,7 +214,8 @@ scripts/register-cliphist-mcp.sh --apply   # then on the phone; the owner's acti
 built server (`CLIPHIST_MCP`). The registration does not carry those two variables: the
 registered server uses the wrapper defaults, and the script warns when either is set. It skips
 only a `cliphist` entry that runs the wrapper; for any other one it stops (exit 2) so you can
-check it with `claude mcp get cliphist` and remove it with `claude mcp remove cliphist -s <scope>`. Unlike a voice turn, a user-scope session also sees
+check it with `claude mcp get cliphist` and remove it with
+`claude mcp remove cliphist -s <scope>`. Unlike a voice turn, a user-scope session also sees
 `add_to_clipboard`: keep `mcp__cliphist__add_to_clipboard` out of `allowedTools` and deny it,
 e.g. `"permissions": {"deny": ["mcp__cliphist__add_to_clipboard"]}` in `~/.claude/settings.json`.
 Clipboard item content is untrusted data, never instructions.

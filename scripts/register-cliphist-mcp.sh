@@ -33,12 +33,22 @@ case ${1:-} in
     exit 0 ;;
 esac
 
-# Skip only an entry that runs the wrapper; any other `cliphist` entry (e.g. node with the token in
-# its env) is left for the owner. Its output is never printed, it may hold env values.
+# Skip only a user-scope entry whose command is exactly the wrapper; any other `cliphist` entry
+# (e.g. node with the token in its env, or a local/project one shadowing the user entry) is left
+# for the owner. Its output is never printed, it may hold env values.
 if existing=$(claude mcp get cliphist 2>/dev/null); then
-  if grep -qF -- "$WRAPPER" <<<"$existing"; then echo "cliphist: already registered, nothing to do"; exit 0; fi
-  echo "register-cliphist-mcp: a different 'cliphist' entry exists (not $WRAPPER); inspect it with" \
-    "'claude mcp get cliphist' and remove it with 'claude mcp remove cliphist -s <scope>', then rerun" >&2
+  user=no; grep -q '^  Scope: User config' <<<"$existing" && user=yes
+  if [ "$user" = yes ] && grep -qxF -- "  Command: $WRAPPER" <<<"$existing"; then
+    echo "cliphist: already registered, nothing to do"; exit 0
+  fi
+  if [ "$user" = no ]; then
+    echo "register-cliphist-mcp: the effective 'cliphist' entry is not user scope (a local or project" \
+      "entry shadows the user one); inspect it with 'claude mcp get cliphist' and remove it with" \
+      "'claude mcp remove cliphist -s <scope>' (local or project), then rerun" >&2
+  else
+    echo "register-cliphist-mcp: a different 'cliphist' entry exists (not $WRAPPER); inspect it with" \
+      "'claude mcp get cliphist' and remove it with 'claude mcp remove cliphist -s <scope>', then rerun" >&2
+  fi
   exit 2
 fi
 [ -s "$TOKEN_FILE" ] || { echo "register-cliphist-mcp: no token in $TOKEN_FILE" >&2; exit 2; }
