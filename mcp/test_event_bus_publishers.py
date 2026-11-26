@@ -235,6 +235,14 @@ def test_publish_compacts_pretty_json_to_one_line(stub):
     assert inp == json.dumps(EVENT, ensure_ascii=False, separators=(",", ":"))
 
 
+@pytest.mark.parametrize("kind", ["notification", "download", "a" * 32, "x_1-2"])
+def test_good_kinds_publish_to_their_topic(stub, kind):
+    p, argv, inp, _ = stub([kind], json.dumps(EVENT))
+    assert p.returncode == 0, p.stderr
+    assert argv == ["-h", "127.0.0.1", "-t", f"phone/events/{kind}", "-s"] and json.loads(inp) == EVENT
+    assert (b"warning" in p.stderr) == (kind != EVENT["kind"])
+
+
 def test_mqtt_host_from_the_environment(stub):
     p, argv, _, _ = stub(["notification"], json.dumps(EVENT), {"MQTT_HOST": "10.0.0.7"})
     assert p.returncode == 0 and argv[:2] == ["-h", "10.0.0.7"] and "-r" not in argv
@@ -274,7 +282,6 @@ def test_usage(stub, args):
     "", "not json", "{", "[1, 2]", '"text"', "42", "null",
     json.dumps(EVENT) + "\n" + json.dumps(EVENT),                  # two events
     json.dumps({k: v for k, v in EVENT.items() if k != "id"}),     # missing key
-    json.dumps(dict(EVENT, kind="download")),                       # kind != topic
     json.dumps(EVENT).replace("1764150000000", "NaN"),
     '{"kind": "notification", "kind": "notification", "source_pkg": "", "title": "", "text": "", "when": 0, "id": ""}',
     b'{"kind": "notification", "source_pkg": "", "title": "\xff", "text": "", "when": 0, "id": ""}',

@@ -3,8 +3,8 @@
 #
 #   event-publish.sh <kind> < event.json
 #
-# stdin: one JSON object with the keys kind, source_pkg, title, text, when, id ("kind" equal to
-# <kind>). It is checked, compacted to a single line (UTF-8, diacritics kept) and published,
+# stdin: one JSON object with the keys kind, source_pkg, title, text, when, id ("kind" should
+# equal <kind>; a mismatch only warns). It is checked, compacted to a single line (UTF-8, diacritics kept) and published,
 # not retained, QoS 0, to phone/events/<kind> on ${MQTT_HOST:-127.0.0.1} (default port 1883):
 #   mosquitto_pub -h HOST -t phone/events/<kind> -s      (payload on stdin, never in argv)
 # A bad kind, invalid JSON or a missing key: a message on stderr, a non-zero exit and nothing
@@ -63,8 +63,8 @@ if not isinstance(ev, dict):
 missing = [k for k in KEYS if k not in ev]
 if missing:
     fail("missing key(s): " + ", ".join(missing))
-if ev["kind"] != kind:
-    fail("the event's \"kind\" does not match <kind>")
+if ev["kind"] != kind:   # the schema says it should; publish anyway, but say so
+    sys.stderr.write("event-publish: warning: the event's \"kind\" differs from <kind>\n")
 out = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
 # json escapes control characters, but not these, and wait_event splits lines with
 # str.splitlines(), which breaks on them. They can only sit inside strings: escape them.

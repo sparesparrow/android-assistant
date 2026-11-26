@@ -89,7 +89,7 @@ Tasker profile (battery, power, car Bluetooth; AutoNotification Intercept)
 
 | File | Role |
 |---|---|
-| `phone/tasker/event-publish.sh <kind>` | Reads one JSON event on stdin. Refuses (stderr, non-zero exit, nothing published) a kind outside `^[a-z0-9_-]{1,32}$`, stdin that is not UTF-8 or not exactly one JSON object, a missing key, a `kind` field different from `<kind>`, NaN/Infinity, duplicate keys, or more than 64 KiB. Compacts with `python3 -I` (diacritics kept; U+2028, U+2029 and U+0085 escaped, because `wait_event` splits lines on them). Event text never reaches a command line or `eval`, and error messages do not repeat it. |
+| `phone/tasker/event-publish.sh <kind>` | Reads one JSON event on stdin. Refuses (stderr, non-zero exit, nothing published) a kind outside `^[a-z0-9_-]{1,32}$`, stdin that is not UTF-8 or not exactly one JSON object, a missing key, NaN/Infinity, duplicate keys, or more than 64 KiB. A `kind` field different from `<kind>` only warns. Compacts with `python3 -I` (diacritics kept; U+2028, U+2029 and U+0085 escaped, because `wait_event` splits lines on them). Event text never reaches a command line or `eval`, and error messages do not repeat it. |
 | `phone/tasker/build-event-bus.py [--dry-run \| OUT.prj.xml] [--allow PKG] [--car-bt NAME]` | Tasker project "Event Bus". |
 | `phone/tasker/import-event-bus.sh [builder options]` | Installs the Termux wrappers `event-battery`, `event-bluetooth`, `event-notification` and imports the project (the owner taps YES in Tasker). |
 | `phone/mqtt/acl.example`, `phone/mqtt/event-bus.conf.example` | Broker ACL and settings, examples only (see "Broker ACL"). |
@@ -100,7 +100,7 @@ already use `mosquitto_pub`/`mosquitto_sub` in the Debian PRoot (package `mosqui
 agents' route into the PRoot, the sshd on 127.0.0.1:8023, cannot be reused: its
 `ForceCommand run-agent.sh --ssh` runs an agent for every login. So the wrapper uses
 `proot-distro login`, the same fallback `agents/termux/claude-agent` uses, with the event on stdin.
-Each event starts a short PRoot session (about a second, not measured here). The events are rare
+Each event starts a new PRoot session (cost not measured). The events are rare
 (battery thresholds, car Bluetooth, allowlisted notifications). Errors go to
 `~/.termux/tasker/event-publish.log` in Termux.
 
