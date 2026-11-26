@@ -23,8 +23,14 @@ def run(cmd, inp=None, timeout=30):
 def _try_adb():
     if not shutil.which("adb"):
         return None
-    run(["adb", "connect", SERIAL], timeout=10)
-    r = run(["adb", "-s", SERIAL, "shell", "id"], timeout=10)
+    probe = lambda: run(["adb", "-s", SERIAL, "shell", "id"], timeout=10)
+    try:
+        r = probe()                       # already connected: skip `adb connect`, which can
+    except subprocess.TimeoutExpired:     # stall for >10 s while adb scans phantom emulators
+        r = None
+    if r is None or r.returncode != 0 or b"uid=" not in r.stdout:
+        run(["adb", "connect", SERIAL], timeout=20)
+        r = probe()
     return (lambda c: ["adb", "-s", SERIAL, "shell", c]) if r.returncode == 0 and b"uid=" in r.stdout else None
 
 
