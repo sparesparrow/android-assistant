@@ -138,6 +138,26 @@ Long-press power opens it.
   (`router/say.sh`) and posts a notification. Settings: `PANEL_AGENT_TIMEOUT` (default
   1800 s), `PANEL_AGENT_MODEL` and `PANEL_WORK_DIR`.
 
+## When ElevenLabs cannot speak: fallback voices
+
+`eleven.py tts` (used by `stream_speak.py`, `assistant.sh` and the MCP `speak` tool) falls back
+when ElevenLabs fails (quota used up, bad key, no network), and logs which engine spoke:
+
+1. **Microsoft Edge neural voices** (`pip install edge-tts` in the voice venv): free, no key,
+   good quality; online and best effort, and the text goes to Microsoft. Czech text gets
+   `cs-CZ-AntoninNeural`, anything else `en-US-AndrewMultilingualNeural`
+   (`EDGE_TTS_VOICE_CS`, `EDGE_TTS_VOICE_EN`; `TTS_EDGE=0` skips it). The same service
+   openclaw's `microsoft` TTS provider uses.
+2. **espeak-ng** (`apt install espeak-ng`): offline and robotic, the last resort.
+
+`TTS_OFFLINE_FALLBACK=0` turns the fallbacks off. Speech-to-text has no fallback yet, so a
+spoken turn still needs ElevenLabs credits; typed turns and the `speak` tool do not.
+
+**Android's own TTS (Google)**, without our audio path: `android-say.sh "text"` writes the text
+to `/sdcard/assistant/say.txt` and runs the Tasker task "Claude Say" (Read File, then Say with
+the system default engine). Import it once: `phone/tasker/build-claude-say.py OUT.prj.xml`, then
+open it with Tasker's importer (see `phone/tasker/tasker-import.sh`) and tap YES.
+
 ## Clipboard history (optional)
 
 "What did I just copy?" works once the cliphist-android local API and its MCP server are set
