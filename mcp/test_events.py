@@ -71,6 +71,7 @@ def test_timeout_means_no_events(srv, sub, reply):  # noqa: F811
     sub.reply = reply
     res = json.loads(srv.wait_event("notification", timeout_s=5))
     assert res["kind"] == "notification" and res["events"] == [] and res["untrusted"] is True
+    assert res["reason"] == "timeout"
 
 
 def test_other_failure_is_one_line_error(srv, sub):  # noqa: F811
@@ -116,6 +117,7 @@ def test_match_filter_case_insensitive_with_czech(srv, sub):  # noqa: F811
     ]))
     res = json.loads(srv.wait_event("notification", match="výzkum|research"))
     assert [e["id"] for e in res["events"]] == ["a", "c", "d"]
+    assert res["reason"] == "match"
     assert res["events"][0]["text"] == "VÝZKUM je hotový"  # diacritics kept (ensure_ascii=False)
     cmd, _ = sub.calls[-1]
     assert cmd[cmd.index("-C") + 1] == "1"  # one message per call; returns at the first match
@@ -145,7 +147,7 @@ def test_non_matching_until_deadline_returns_empty(srv, sub, monkeypatch):  # no
         return (0, _ev(title="WhatsApp", text="Ahoj"))
     monkeypatch.setattr(srv, "_run", fake_run)
     res = json.loads(srv.wait_event("notification", match="výzkum", timeout_s=10))
-    assert res["events"] == []
+    assert res["events"] == [] and res["reason"] == "timeout"
     assert len(sub.calls) == 3  # t=0, 4, 8; deadline at 10
     assert [c[c.index("-W") + 1] for c, _ in sub.calls] == ["10", "6", "2"]
 
@@ -161,6 +163,7 @@ def test_subscribe_calls_bounded(srv, sub):  # noqa: F811
     sub.reply = (0, _ev(title="WhatsApp", text="Ahoj"))  # never matches, never times out
     res = json.loads(srv.wait_event("notification", match="výzkum", timeout_s=3600))
     assert res["events"] == [] and len(sub.calls) == srv.EVENT_MAX_SUBS == 200
+    assert res["reason"] == "max_messages"
 
 
 def test_without_match_returns_first_valid_event(srv, sub):  # noqa: F811
@@ -168,6 +171,7 @@ def test_without_match_returns_first_valid_event(srv, sub):  # noqa: F811
     sub.reply = (0, _ev(id="first"))
     res = json.loads(srv.wait_event("notification"))
     assert [e["id"] for e in res["events"]] == ["first"] and len(sub.calls) == 3
+    assert res["reason"] == "event"
 
 
 def test_string_fields_capped(srv, sub):  # noqa: F811
@@ -176,6 +180,39 @@ def test_string_fields_capped(srv, sub):  # noqa: F811
     ev = json.loads(srv.wait_event("notification"))["events"][0]
     assert {k: len(ev[k]) for k in ("kind", "source_pkg", "id", "when", "title")} == \
         {"kind": 200, "source_pkg": 200, "id": 200, "when": 200, "title": 500}
+
+
+def test_nested_values_become_capped_json_text(srv, sub):  # noqa: F811
+    sub.reply = (0, _ev(id={"k": "č" * 500}, source_pkg=["a", "b"], when={"t": 1},
+                        text={"msg": "Výzkum", "n": [1, 2]}))
+    ev = json.loads(srv.wait_event("notification"))["events"][0]
+    assert ev["source_pkg"] == '["a", "b"]' and ev["when"] == '{"t": 1}'  # JSON, not repr
+    assert ev["id"] == json.dumps({"k": "č" * 500}, ensure_ascii=False)[:200]
+    assert len(ev["id"]) == 200 and ev["id"].startswith('{"k": "čč')
+    assert ev["text"] == '{"msg": "Výzkum", "n": [1, 2]}'
+
+
+def test_huge_int_becomes_capped_text_small_int_kept(srv, sub):  # noqa: F811
+    big = int("9" * 4000)  # under Python's 4300-digit int/str limit, so json.loads accepts it
+    sub.reply = (0, _ev(id=big, when=1764150000000))
+    ev = json.loads(srv.wait_event("notification"))["events"][0]
+    assert ev["id"] == "9" * 200
+    assert ev["when"] == 1764150000000 and isinstance(ev["when"], int)
+    sub.reply = (0, _ev(id=int("1" * 200)))  # exactly 200 digits: still an int
+    assert json.loads(srv.wait_event("notification"))["events"][0]["id"] == int("1" * 200)
+
+
+def test_worst_case_output_bounded(srv, sub):  # noqa: F811
+    huge = int("7" * 4000)
+    sub.reply = (0, "\n".join(_ev(kind="k" * 5000, source_pkg="p" * 5000, title="t" * 5000,
+                                   text="x" * 5000, when=huge, id=huge) for _ in range(30)))
+    out = srv.wait_event("notification")
+    res = json.loads(out)
+    assert len(res["events"]) == 20
+    for ev in res["events"]:
+        assert {k: len(ev[k]) for k in ev} == {"kind": 200, "source_pkg": 200, "title": 500,
+                                                "text": 2000, "when": 200, "id": 200}
+    assert len(out) < 70_000
 
 
 def test_match_applies_to_returned_text(srv, sub):  # noqa: F811

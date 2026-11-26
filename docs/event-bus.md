@@ -3,7 +3,8 @@
 Long jobs (Gemini Deep Research, NotebookLM overviews, downloads) finish with a notification.
 Instead of polling the screen or `phone/notif-wait.py` (adb `dumpsys` every 20 s), Tasker with
 AutoNotification captures the event on the phone, normalises it to JSON and publishes it to the
-local Mosquitto broker (`MQTT_HOST`, default `127.0.0.1:1883`). Agents only subscribe, through
+local Mosquitto broker (host from the `MQTT_HOST` environment variable, default `127.0.0.1`;
+no `-p` is passed, so mosquitto's default port 1883 applies). Agents only subscribe, through
 the MCP tool `wait_event`. Tracking issue: sparesparrow/mcp-prompts#140.
 
 ## Topics
@@ -13,7 +14,9 @@ the MCP tool `wait_event`. Tracking issue: sparesparrow/mcp-prompts#140.
 
 ## Event schema
 
-One JSON object per MQTT message, UTF-8 (Czech diacritics kept as they are):
+One JSON object per MQTT message, on a single line, UTF-8 (Czech diacritics kept as they are).
+`wait_event` reads `mosquitto_sub` output line by line, so a pretty-printed (multi-line) payload
+splits into lines that are each dropped. Publish compact JSON:
 
 ```json
 {"kind": "notification", "source_pkg": "com.google.android.apps.bard",
@@ -28,7 +31,8 @@ One JSON object per MQTT message, UTF-8 (Czech diacritics kept as they are):
 | `when` | event time, ms since the epoch (as `notif-wait.py` reports it) |
 | `id` | the notification key or another stable id, for de-duplication |
 
-Messages that are not JSON objects or lack one of these keys are dropped by `wait_event`.
+Messages that are not single-line JSON objects or lack one of these keys are dropped by
+`wait_event`.
 
 ## Who publishes, who subscribes
 
@@ -38,8 +42,8 @@ Messages that are not JSON objects or lack one of these keys are dropped by `wai
 - **Subscribe:** agents, through `wait_event(kind, match="", timeout_s=60)`:
   - `match` is an optional case-insensitive regex, searched in the title and in the text.
   - The timeout is clamped to 1..3600 s.
-  - It returns as soon as an event matches (without `match`: as soon as one valid event arrives), with `{"kind", "events": [...], "untrusted": true, "note"}`: at most 20 events, the title cut at 500 characters, the text at 2000 and every other string field at 200. `match` is applied to the cut title and text, the ones the caller sees.
-  - On timeout, `events` is `[]`. It is also `[]` after 200 messages without a match (a bound on the number of subscribe calls).
+  - It returns as soon as an event matches (without `match`: as soon as one valid event arrives), with `{"kind", "events": [...], "reason", "untrusted": true, "note"}`: at most 20 events, the title cut at 500 characters, the text at 2000 and every other field at 200. Nested objects or arrays in a field become JSON text and integers longer than 200 digits become digit text, both cut the same way; short strings, small numbers, booleans and `null` are returned as published. `match` is applied to the cut title and text, the ones the caller sees.
+  - `reason` says why it returned: `"match"` (an event matched `match`), `"event"` (no `match`; the first valid event), `"timeout"` (`events` is `[]`) or `"max_messages"` (`events` is `[]` after 200 messages without a match, a bound on the number of subscribe calls).
   - How it waits: one `mosquitto_sub -W <remaining s> -C 1 -R` per message. A message that does not match is dropped and the tool subscribes again with the remaining time.
 
 ## Retention and QoS
