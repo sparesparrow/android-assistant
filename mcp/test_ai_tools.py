@@ -135,6 +135,14 @@ def test_ai_reply_scroll_never_swipes_outside_the_app(srv, on_screen, monkeypatc
     assert on_screen == []
 
 
+def test_ai_reply_scroll_stops_when_the_app_leaves_the_front(srv, on_screen, monkeypatch):
+    kimi, other = [{"pkg": chatbots.PROFILES["kimi"]["pkg"]}], [{"pkg": "com.termux"}]
+    screens = iter([kimi, kimi, other])            # initial check, swipe 1 check, swipe 2 check
+    monkeypatch.setattr(chatbots, "nodes", lambda: next(screens))
+    srv.ai_reply("kimi", scroll=3)
+    assert on_screen == [["swipe", "up"], ["reply", "kimi"]]
+
+
 def test_reply_tools_offer_scroll_instead_of_act(srv):
     tools = {t.name: t for t in srv.mcp._tool_manager.list_tools()}
     for name in ("ai_reply", "gemini_reply"):

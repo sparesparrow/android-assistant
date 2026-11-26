@@ -125,8 +125,21 @@ def test_gemini_reply_scroll_swipes_up_bounded_then_reads(srv, monkeypatch, give
     monkeypatch.setattr(gemini, "nodes", lambda: log.append(["ui"]) or [{"pkg": next(iter(gemini.GEMINI_PKGS))}])
     monkeypatch.setattr(gemini, "chat_text", lambda ns: "answer")
     assert srv.gemini_reply(scroll=given) == "answer"
-    assert log == [["ui"]] + [["swipe", "up"]] * swipes + ([["ui"]] if swipes else [])
+    # Gemini is re-checked (a screen read) before each swipe
+    assert log == [["ui"]] + [["ui"], ["swipe", "up"]] * swipes + ([["ui"]] if swipes else [])
     assert swipes <= srv.SCROLL_MAX
+
+
+def test_gemini_reply_scroll_stops_when_gemini_leaves_the_front(srv, monkeypatch):
+    log = []
+    gem, other = [{"pkg": next(iter(gemini.GEMINI_PKGS))}], [{"pkg": "com.termux"}]
+    screens = iter([gem, gem, other, other])       # initial check, swipe 1 check, swipe 2 check, re-read
+    monkeypatch.setattr(srv.time, "sleep", lambda s: None)
+    monkeypatch.setattr(srv, "_run", lambda cmd, timeout=30, inp=None: log.append(cmd[1:]) or (0, "ok"))
+    monkeypatch.setattr(gemini, "nodes", lambda: next(screens))
+    monkeypatch.setattr(gemini, "chat_text", lambda ns: "answer")
+    srv.gemini_reply(scroll=3)
+    assert log.count(["swipe", "up"]) == 1
 
 
 def test_gemini_reply_scroll_never_swipes_outside_gemini(srv, monkeypatch):
