@@ -43,7 +43,29 @@ ACTIONS = {
 }
 EVENTS = {"201": "Assistance Request"}
 
+# (name, pattern[, replacement]). Order matters: specific formats first, so the generic
+# "long random string", e-mail and phone rules only see what is left. A replacement keeps a
+# harmless prefix (a parameter or key name) and redacts only the value.
+REDACTED = "[redacted]"
 SECRET_PATTERNS = [
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)),
+    ("url credentials", re.compile(r"(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s@]+(?=@)", re.I), r"\1" + REDACTED),
+    ("authorization header", re.compile(r"(\bAuthorization:\s*(?:Bearer|Basic|Token)?\s*)[^\s\"']{8,}", re.I),
+     r"\1" + REDACTED),
+    ("bearer token", re.compile(r"(\bBearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1" + REDACTED),
+    ("secret parameter", re.compile(
+        r"([?&](?:api[_-]?key|key|token|access[_-]?token|auth|secret|client[_-]?secret|password|passwd|pwd"
+        r"|sig|signature)=)[^&\s\"'#]+", re.I), r"\1" + REDACTED),
+    ("secret assignment", re.compile(
+        r"(\b(?:password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?key|auth[_-]?token"
+        r"|access[_-]?token|token)[\"']?\s*[:=]\s*[\"']?)(?!\[redacted\])[^\s\"',;&]{4,}", re.I), r"\1" + REDACTED),
+    ("aws access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("google oauth token", re.compile(r"\bya29\.[0-9A-Za-z_-]{20,}")),
+    ("google refresh token", re.compile(r"(?<![\w/])1//0[0-9A-Za-z_-]{20,}")),
+    ("gitlab token", re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}")),
+    ("github fine-grained token", re.compile(r"\bgithub_pat_[0-9A-Za-z_]{20,}")),
+    ("huggingface token", re.compile(r"\bhf_[A-Za-z0-9]{30,}")),
+    ("npm token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
     ("api key", re.compile(r"\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}")),
     ("google key", re.compile(r"\bAIza[0-9A-Za-z_-]{30,}")),
     ("github token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}")),
@@ -66,8 +88,8 @@ class Redactor:
             if lit in text:
                 self.count["known token"] += text.count(lit)
                 text = text.replace(lit, "[redacted]")
-        for name, rx in SECRET_PATTERNS:
-            text, n = rx.subn("[redacted]", text)
+        for name, rx, *replacement in SECRET_PATTERNS:
+            text, n = rx.subn(replacement[0] if replacement else REDACTED, text)
             self.count[name] += n
         return text
 
