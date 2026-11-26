@@ -27,6 +27,8 @@ way out to native Termux.
 | `termux/bashrc.snippet` | Termux `~/.bashrc`: `~/bin` on PATH + start loopback sshd |
 | `root/setup-boot.sh` | Magisk boot script: mic server + sshd at boot |
 | `/etc/profile.d/phone-services.sh` | Debian login: env vars + `phone-services ensure` in background |
+| `notif-wait.py` | wait for a new Android notification (dumpsys polling) and print it as JSON |
+| `event-pub.py` | publish one event on MQTT `phone/events/<kind>` for the `wait_event` tool; `notif-wait.py ... \| event-pub.py --stdin` bridges notifications |
 | `logs/` | `ensure.log`, `test-mic.wav` |
 
 ## Autostart
