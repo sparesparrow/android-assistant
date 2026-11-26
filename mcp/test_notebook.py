@@ -52,6 +52,7 @@ def test_clipboard_intent_percent_encodes(monkeypatch):
     cmds = []
     monkeypatch.setattr(gemini, "_droid", lambda *a, **k: cmds.append(a) or "")
     monkeypatch.setattr(gemini, "wait_for", lambda pred, **k: [{"i": 0, "id": "copy", "x": 970, "y": 1442}])
+    monkeypatch.setattr(nb, "nodes", lambda: [{"i": 0, "id": "copy", "x": 970, "y": 1442}])
     monkeypatch.setattr(nb, "tap", lambda x, y: cmds.append(("tap", x, y)))
     monkeypatch.setattr(nb.time, "sleep", lambda s: None)
     nb.to_clipboard("žluť'; reboot; '")
@@ -84,3 +85,23 @@ def test_server_tool_reports_errors_as_json(tmp_path, monkeypatch):
     out = json.loads(server.notebook_ask("q", notebook="https://evil.example.com/x"))
     assert "notebook must be" in out["error"]
     assert "unknown Studio output" in json.loads(server.notebook_studio("hologram"))["error"]
+
+
+def test_clipboard_waits_for_the_sheet_to_settle_and_leaves_quick_share(monkeypatch):
+    """A Copy button read mid-animation moves; a tap that opens Quick Share is backed out of."""
+    cmds = []
+    copy = lambda y: [{"i": 0, "id": "copy", "x": 970, "y": y, "pkg": "com.android.intentresolver"}]
+    quick = [{"i": 0, "text": "Quick Share", "desc": "", "id": "", "pkg": "com.google.android.gms"}]
+    # wait_for sees the sheet mid-slide (y=1700); re-reads settle at 1442.
+    screens = iter([copy(1442), copy(1442), quick,      # first try: settles, the tap opens Quick Share
+                    copy(1442), copy(1442), []])        # second try: settles, Copy worked
+    monkeypatch.setattr(gemini, "_droid", lambda *a, **k: cmds.append(a) or "")
+    monkeypatch.setattr(gemini, "wait_for", lambda pred, **k: copy(1700))
+    monkeypatch.setattr(nb, "nodes", lambda: next(screens))
+    monkeypatch.setattr(nb, "tap", lambda x, y: cmds.append(("tap", x, y)))
+    monkeypatch.setattr(nb.time, "sleep", lambda s: None)
+    nb.to_clipboard("hello")
+    taps = [c for c in cmds if c[0] == "tap"]
+    assert taps == [("tap", 970, 1442), ("tap", 970, 1442)]
+    assert ("key", "back") in cmds
+    assert sum(1 for c in cmds if c[0] == "sh") == 2
