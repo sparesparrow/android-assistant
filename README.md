@@ -45,5 +45,5 @@ cd mcp && .venv/bin/python -m pytest -q
 - Sending anything to another person needs the user's explicit yes to the recipient and the text. The tool returns a confirmation token that expires after 5 minutes.
 - No payments, banking or trading.
 - Phone UI work is serialised under `phone/state/agent.lock`, because there is one screen.
-- The MCP tools do not expose a shell or `su`. Root is used only by maintenance scripts that a person starts (`tasker-edit.py`, `phone-services`).
+- The MCP tools do not expose a shell or `su`. Root is used only by maintenance commands a person runs at a terminal: `tasker-edit.py` asks for `yes` on `/dev/tty` before every root write, and `phone-services` uses Magisk `su` only for `pa-restart`/`pa-stop` with a tty. `mcp/test_su_paths.py` checks that no agent path reaches `su`.
 - Runtime state, logs, recordings, tokens and keys are git-ignored (`phone/state/`, `voice/state/`, `*/logs/`).
