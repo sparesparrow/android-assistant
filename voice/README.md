@@ -138,25 +138,38 @@ Long-press power opens it.
   (`router/say.sh`) and posts a notification. Settings: `PANEL_AGENT_TIMEOUT` (default
   1800 s), `PANEL_AGENT_MODEL` and `PANEL_WORK_DIR`.
 
-## When ElevenLabs cannot speak: fallback voices
+## When ElevenLabs cannot listen or speak: free fallbacks
 
-`eleven.py tts` (used by `stream_speak.py`, `assistant.sh` and the MCP `speak` tool) falls back
-when ElevenLabs fails (quota used up, bad key, no network), and logs which engine spoke:
+`eleven.py` (used by `stream_speak.py`, `assistant.sh` and the MCP `speak` tool) falls back when
+ElevenLabs fails (quota used up, bad key, no network), and logs which engine did the work.
 
-1. **Microsoft Edge neural voices** (`pip install edge-tts` in the voice venv): free, no key,
+**Speech-to-text:** **faster-whisper**, offline (`pip install faster-whisper`; the model is
+downloaded from Hugging Face on first use and cached). Audio is decoded by SoX. Defaults: model
+`base`, int8, 4 threads, language detected. On this phone a 5 s command takes about 6-8 s plus
+3.5 s to load the model; `STT_FALLBACK_MODEL=small` is clearly better at Czech and about 2.5x
+slower; `STT_FALLBACK_LANGUAGE=cs` (or `en`) skips detection and saves about 2 s;
+`STT_FALLBACK_THREADS`; `STT_OFFLINE_FALLBACK=0` turns it off. Language codes are reported in
+ISO 639-3 (`ces`, `eng`) like ElevenLabs.
+
+**Text-to-speech**, in this order when the text is in the phone's TTS language (Czech letters
+or not, against `settings get secure tts_default_locale`), else Edge first and the phone second:
+
+1. **Android's own TTS (Google)**: `android-say.sh --wait` writes the text to
+   `/sdcard/assistant/say.txt`, runs the Tasker task "Claude Say" (Read File, then Say with the
+   system default engine) and returns once Tasker has released audio focus. The phone speaks
+   itself, so `eleven.py` leaves a 50 ms silent mp3 for callers that play the file. Offline with
+   the downloaded Google voices; nothing leaves the phone. `TTS_ANDROID=0` skips it;
+   `ANDROID_TTS_LANG` overrides the detected language. Import the task once:
+   `phone/tasker/build-claude-say.py OUT.prj.xml`, then open it with Tasker's importer (see
+   `phone/tasker/tasker-import.sh`) and tap YES.
+2. **Microsoft Edge neural voices** (`pip install edge-tts` in the voice venv): free, no key,
    good quality; online and best effort, and the text goes to Microsoft. Czech text gets
    `cs-CZ-AntoninNeural`, anything else `en-US-AndrewMultilingualNeural`
    (`EDGE_TTS_VOICE_CS`, `EDGE_TTS_VOICE_EN`; `TTS_EDGE=0` skips it). The same service
    openclaw's `microsoft` TTS provider uses.
-2. **espeak-ng** (`apt install espeak-ng`): offline and robotic, the last resort.
+3. **espeak-ng** (`apt install espeak-ng`): offline and robotic, the last resort.
 
-`TTS_OFFLINE_FALLBACK=0` turns the fallbacks off. Speech-to-text has no fallback yet, so a
-spoken turn still needs ElevenLabs credits; typed turns and the `speak` tool do not.
-
-**Android's own TTS (Google)**, without our audio path: `android-say.sh "text"` writes the text
-to `/sdcard/assistant/say.txt` and runs the Tasker task "Claude Say" (Read File, then Say with
-the system default engine). Import it once: `phone/tasker/build-claude-say.py OUT.prj.xml`, then
-open it with Tasker's importer (see `phone/tasker/tasker-import.sh`) and tap YES.
+`TTS_OFFLINE_FALLBACK=0` turns the TTS fallbacks off.
 
 ## Clipboard history (optional)
 
