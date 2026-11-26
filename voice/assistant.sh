@@ -15,8 +15,9 @@
 # --speak takes state/turn.lock unless the caller holds it (VA_TURN_LOCKED=1); exit 4 = busy.
 #
 # Claude runs isolated: --permission-mode dontAsk denies every tool not in ALLOWED_TOOLS, and
-# --strict-mcp-config loads only mcp.json (android-assistant, mcp-prompts), not the user's
-# claude.ai connectors or plugins; --setting-sources project,local skips user settings;
+# --strict-mcp-config loads only mcp.json (android-assistant, mcp-prompts) and, once clipboard
+# history is set up, mcp.cliphist.json; not the user's claude.ai connectors or plugins;
+# --setting-sources project,local skips user settings;
 # --tools leaves only WebSearch and WebFetch of the built-in tools.
 set -euo pipefail
 
@@ -112,6 +113,19 @@ ALLOWED_TOOLS=(
   mcp__mcp-prompts__list_prompts mcp__mcp-prompts__get_prompt mcp__mcp-prompts__apply_template
   WebSearch WebFetch
 )
+# Clipboard history joins when it is set up: a token in state/cliphist-token (the one the app's
+# local API was started with) and the built cliphist-android MCP server. Read-only tools only;
+# add_to_clipboard stays out. The app redacts one-time codes, passwords and tokens first.
+CLIPHIST_TOOLS=(
+  mcp__cliphist__get_clipboard_history mcp__cliphist__search_clipboard
+  mcp__cliphist__get_clipboard_item mcp__cliphist__get_clipboard_stats
+)
+export CLIPHIST_TOKEN_FILE=${CLIPHIST_TOKEN_FILE:-$HERE/state/cliphist-token}
+MCP_CONFIGS=("$HERE/mcp.json")
+if [ -s "$CLIPHIST_TOKEN_FILE" ] && [ -f "${CLIPHIST_MCP:-/root/cliphist-android/mcp-server/dist/index.js}" ]; then
+  MCP_CONFIGS+=("$HERE/mcp.cliphist.json")
+  ALLOWED_TOOLS+=("${CLIPHIST_TOOLS[@]}")
+fi
 ask_claude() {  # $1 = resume session id or empty; summary JSON -> $TMP/summary, rc -> $TMP/claude.rc
   local sys now args=() ss=(--t0-ms "$T0" --out-dir "$OUT_DIR")
   [ "$SPEAK" = 1 ] && ss+=(--play)
@@ -121,7 +135,7 @@ ask_claude() {  # $1 = resume session id or empty; summary JSON -> $TMP/summary,
   [ -n "$1" ] && args+=(--resume "$1")
   { rc=0; (cd /root && claude -p "$TEXT" "${args[@]}" \
       --model "$CLAUDE_MODEL" --output-format stream-json --verbose --include-partial-messages \
-      --permission-mode dontAsk --strict-mcp-config --mcp-config "$HERE/mcp.json" \
+      --permission-mode dontAsk --strict-mcp-config --mcp-config "${MCP_CONFIGS[@]}" \
       --setting-sources project,local --tools "WebSearch,WebFetch" \
       --append-system-prompt "$sys" \
       --allowedTools "${ALLOWED_TOOLS[@]}" \

@@ -556,7 +556,7 @@ def va(tmp_path):
     on assistant.sh's PATH). Logs, state and the turn lock stay in tmp_path."""
     v = tmp_path / "voice"
     v.mkdir()
-    for f in ("assistant.sh", "route.py", "stream_speak.py", "audio.env", "mcp.json"):
+    for f in ("assistant.sh", "route.py", "stream_speak.py", "audio.env", "mcp.json", "mcp.cliphist.json"):
         (v / f).write_bytes((VOICE / f).read_bytes())
         (v / f).chmod(0o755)
     bindir = tmp_path / "home" / ".local" / "bin"
@@ -614,6 +614,55 @@ def test_assistant_claude_runs_isolated(va):
         assert flag in args, flag
     allowed = args.split("--allowedTools ", 1)[1].split(" --", 1)[0].split()
     assert allowed == _allowed_tools()
+
+
+CLIPHIST_READ_TOOLS = ["mcp__cliphist__get_clipboard_history", "mcp__cliphist__search_clipboard",
+                       "mcp__cliphist__get_clipboard_item", "mcp__cliphist__get_clipboard_stats"]
+
+
+def test_assistant_cliphist_stays_out_until_set_up(va, tmp_path):
+    server = tmp_path / "index.js"
+    server.write_text("")
+    p, stub, lat, last = va("--text", "hi", CLIPHIST_MCP=str(server))  # built, but no token
+    args = stub("claude")[0]
+    assert "mcp.cliphist.json" not in args and "cliphist" not in args.split("--allowedTools ", 1)[1]
+
+
+def test_assistant_cliphist_joins_with_token_and_server(va, tmp_path):
+    token, server = tmp_path / "cliphist-token", tmp_path / "index.js"
+    token.write_text("t0ken-not-real\n")
+    server.write_text("")
+    p, stub, lat, last = va("--text", "hi", CLIPHIST_TOKEN_FILE=str(token), CLIPHIST_MCP=str(server))
+    assert p.returncode == 0, p.stderr
+    args = stub("claude")[0]
+    assert f"--mcp-config {va.dir}/mcp.json {va.dir}/mcp.cliphist.json --setting-sources" in args
+    allowed = args.split("--allowedTools ", 1)[1].split(" --", 1)[0].split()
+    assert allowed == _allowed_tools() + CLIPHIST_READ_TOOLS
+    assert "mcp__cliphist__add_to_clipboard" not in allowed
+    assert "t0ken-not-real" not in args + p.stderr + (va.dir / "logs" / "assistant.log").read_text()
+
+
+def test_mcp_cliphist_json_runs_the_wrapper_without_secrets():
+    cfg = json.loads((VOICE / "mcp.cliphist.json").read_text())["mcpServers"]
+    assert list(cfg) == ["cliphist"]
+    assert cfg["cliphist"]["command"].endswith("/voice/cliphist-mcp.sh") and not cfg["cliphist"]["env"]
+
+
+def test_cliphist_wrapper_passes_the_token_only_in_the_environment(tmp_path):
+    token, server, node = tmp_path / "tok", tmp_path / "index.js", tmp_path / "node"
+    server.write_text("")
+    node.write_text('#!/bin/sh\necho "argv=$* token=$CLIPHIST_API_TOKEN url=$CLIPHIST_API_URL"\n')
+    node.chmod(0o755)
+    env = {"PATH": os.environ["PATH"], "CLIPHIST_TOKEN_FILE": str(token), "CLIPHIST_MCP": str(server),
+           "CLIPHIST_NODE": str(node)}
+    run = lambda: subprocess.run([str(VOICE / "cliphist-mcp.sh")], capture_output=True, text=True,  # noqa: E731
+                                 env=env, timeout=10)
+    p = run()
+    assert p.returncode == 2 and "no token" in p.stderr
+    token.write_text("abc123\n")
+    p = run()
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.strip() == f"argv={server} token=abc123 url=http://127.0.0.1:8765"
 
 
 def test_assistant_speak_rest_tts_failure_synthesizes_only_the_remainder(va):
