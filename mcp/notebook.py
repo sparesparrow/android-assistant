@@ -111,18 +111,41 @@ def to_clipboard(text: str) -> None:
              "S.android.intent.extra.TEXT=" + urllib.parse.quote(text, safe="") + ";end")
     # Only ever tap the element with id "copy": the sheet also lists direct-share targets
     # (people in WhatsApp etc.), so a coordinate tap on a half-drawn sheet could share the text.
-    copy = None
     for _ in range(2):                       # the sheet is sometimes slow to appear
         g._droid("sh", f"am start -a android.intent.action.CHOOSER --eu android.intent.extra.INTENT '{inner}'")
-        ns = g.wait_for(lambda ns: any(n.get("id") == "copy" for n in ns), timeout=15, step=1.5)
-        copy = next((n for n in ns if n.get("id") == "copy"), None)
+        ns = g.wait_for(lambda ns: copy_button(ns) is not None, timeout=15, step=1.5)
+        copy = settled(copy_button(ns))
         if copy is not None:
-            break
+            tap(copy["x"], copy["y"])
+            time.sleep(1.0)
+            if not in_quick_share(nodes()):
+                return
+            # The tap hit Quick Share instead of Copy; leave it without sending anything.
         g._droid("key", "back")
-    if copy is None:
-        raise GeminiError("the share sheet showed no Copy button")
-    tap(copy["x"], copy["y"])
-    time.sleep(1.0)
+    raise GeminiError("the share sheet showed no Copy button that could be tapped")
+
+
+def copy_button(ns: list[dict]) -> dict | None:
+    return next((n for n in ns if n.get("id") == "copy"), None)
+
+
+def settled(copy: dict | None, tries: int = 4) -> dict | None:
+    """The share sheet slides up after it is first drawn, so a Copy button read too early sits
+    lower than where it ends up, over the Quick Share row. Re-read until two reads agree."""
+    for _ in range(tries):
+        if copy is None:
+            return None
+        time.sleep(0.6)
+        again = copy_button(nodes())
+        if again is not None and (again["x"], again["y"]) == (copy["x"], copy["y"]):
+            return again
+        copy = again
+    return None
+
+
+def in_quick_share(ns: list[dict]) -> bool:
+    return any(n.get("pkg") == "com.google.android.gms" and label(n) in ("quick share", "send to nearby devices")
+               for n in ns)
 
 
 def paste_into(ns: list[dict], text: str) -> list[dict]:
