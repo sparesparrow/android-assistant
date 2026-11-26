@@ -248,6 +248,16 @@ def test_pa_start_without_tty_launches_plain_adb_child_only(ps):
     assert not [c for c in ps.calls() if "su -c" in c or "su 2000" in c]
 
 
+def test_preset_readonly_su_ok_is_refused(ps):
+    # a readonly SU_OK=1 from BASH_ENV would survive the SU_OK=0 assignment and unlock su without a tty
+    bash_env = ps.dir / "bash_env"
+    bash_env.write_text("readonly SU_OK=1\n")
+    ps.rules("0 *test -x /data/local/tmp/pa/bin/pulseaudio*", "0 *su -c*su 2000*", "0 *nohup sh*")
+    p = ps("pa-restart", adb_up=True, STUB_PORTS="4713", STUB_PA_UP="1", BASH_ENV=str(bash_env))
+    assert p.returncode != 0
+    assert not [c for c in ps.calls() if "su -c" in c]
+
+
 def _no_su(ps):
     return not [c for c in ps.calls() if "su -c" in c or "su 2000" in c]
 

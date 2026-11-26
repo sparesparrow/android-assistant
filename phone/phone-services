@@ -22,7 +22,8 @@ SERIAL=127.0.0.1:5555
 A="adb -s $SERIAL"
 KEY=${PHONE_SSH_KEY:-/root/.ssh/termux_ed25519}
 DEV=/data/local/tmp/pa
-SU_OK=0   # set only by pa-restart / pa-stop at a terminal; never read from the environment
+SU_OK=0   # set to 1 only by pa-restart / pa-stop at a terminal; a preset (readonly) value aborts below
+[ "$SU_OK" = 0 ] || { echo "phone-services: SU_OK preset; refusing" >&2; exit 1; }
 mkdir -p "$P/logs"
 export PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$P/pa/cookie
 
