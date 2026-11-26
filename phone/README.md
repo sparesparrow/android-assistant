@@ -34,4 +34,12 @@ way out to native Termux.
 ## Autostart
 1. Every Debian login shell starts `phone-services watch` (one instance): it runs `ensure`
    every 60 s, because an adbd restart kills the mic server along with every adb-spawned process.
+   `ensure`/`watch` never run `su`: a down mic is restarted as a plain adb child (dies with the
+   next adbd restart) and `logs/ensure.log` says `run: phone-services pa-restart`.
 2. Optional, at phone boot (root): `sudo sh ~/phone/setup-boot.sh` in native Termux.
+
+## Root (Magisk su)
+Only `pa-restart` and `pa-stop`, and only with a tty on stdin (a human at a terminal), use
+`su` (start the mic server as uid 2000 outside adbd's process group / kill a boot-started one).
+`ensure`/`watch` never use su, tty or not; headless callers (`claude -p`, Tasker, agent sshd with
+`PermitTTY no`) have no tty and get the plain path.

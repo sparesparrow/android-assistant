@@ -12,6 +12,8 @@
 #   phone-services ssh-key           create the PRoot key and authorize it in Termux
 #   (ensure also starts the agent sshd on 127.0.0.1:8023 once assistant/agents/install.sh ran:
 #    Tasker -> Termux -> ssh into this PRoot -> run-agent.sh)
+#   Magisk su only from pa-restart / pa-stop with a tty on stdin (a human at a terminal). ensure, watch
+#   and headless callers (claude -p, Tasker, agent sshd) never run su: mic down -> plain adb child + log.
 set -u
 P=${PHONE_DIR:-/root/phone}   # overridable for tests (test_phone_services.py)
 T=/data/data/com.termux/files
@@ -20,6 +22,8 @@ SERIAL=127.0.0.1:5555
 A="adb -s $SERIAL"
 KEY=${PHONE_SSH_KEY:-/root/.ssh/termux_ed25519}
 DEV=/data/local/tmp/pa
+SU_OK=0   # set to 1 only by pa-restart / pa-stop at a terminal; a preset (readonly) value aborts below
+[ "$SU_OK" = 0 ] || { echo "phone-services: SU_OK preset; refusing" >&2; exit 1; }
 mkdir -p "$P/logs"
 export PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$P/pa/cookie
 
@@ -38,7 +42,7 @@ termux_pa_kill() {  # Termux's own PulseAudio can't use the mic; make sure it do
 }
 pa_kill() {  # boot-started server runs in Magisk's SELinux domain: shell can't signal it, so fall back to su
   $A shell "pkill -f '[/]data/local/tmp/pa/bin/pulseaudio'" >/dev/null 2>&1
-  $A shell "pgrep -f '[/]data/local/tmp/pa/bin/pulseaudio'" >/dev/null 2>&1 &&
+  [ $SU_OK = 1 ] && $A shell "pgrep -f '[/]data/local/tmp/pa/bin/pulseaudio'" >/dev/null 2>&1 &&
     $A shell "su -c \"pkill -f '[/]data/local/tmp/pa/bin/pulseaudio'\"" >/dev/null 2>&1
   sleep 1; ! $A shell "pgrep -f '[/]data/local/tmp/pa/bin/pulseaudio'" >/dev/null 2>&1
 }
@@ -55,8 +59,9 @@ pa_start() {
   if [ "${1:-}" = --push ] || ! $A shell "test -x $DEV/bin/pulseaudio" 2>/dev/null; then pa_push || return 1; fi
   pa_up || termux_pa_kill
   # Start it as uid 2000 via Magisk su, so it is not in adbd's process group: every adbd restart
-  # kills adb-spawned children. Fall back to a plain adb child if su is not granted to Shell.
-  $A shell "su -c \"su 2000 -c 'nohup sh $DEV/run.sh >/dev/null 2>&1 &'\"" >/dev/null 2>&1 ||
+  # kills adb-spawned children. Fall back to a plain adb child if su is not granted to Shell,
+  # and use only that without SU_OK (ensure, no tty).
+  { [ $SU_OK = 1 ] && $A shell "su -c \"su 2000 -c 'nohup sh $DEV/run.sh >/dev/null 2>&1 &'\"" >/dev/null 2>&1; } ||
     $A shell "nohup sh $DEV/run.sh >/dev/null 2>&1 &"
   for _ in 1 2 3 4 5 6 7 8; do sleep 1; pa_up && return 0; done
   echo "mic server did not come up; log:" >&2; $A shell "tail -5 $DEV/pa.log" >&2; return 1
@@ -100,7 +105,8 @@ case "${1:-status}" in
     exec 9>"$P/logs/.lock"; flock -n 9 || exit 0
     { echo "== $(date '+%F %T') ensure"
       adb_connect && echo "adb ok" || echo "adb down"
-      pa_up && echo "mic ok" || { pa_start && echo "mic started" || echo "mic FAILED"; }
+      pa_up && echo "mic ok" || { pa_start && echo "mic started as adb child, no su (dies with adbd) - for a lasting one run: phone-services pa-restart" ||
+                                  echo "mic DOWN - run: phone-services pa-restart"; }
       va_up && echo "va-http ok" || { va_start && echo "va-http started" || echo "va-http FAILED"; }
       agent_sshd_up && echo "agent-sshd ok" || { agent_sshd_start; case $? in 0) echo "agent-sshd started" ;; 2) ;; *) echo "agent-sshd FAILED" ;; esac; }
     } >>"$P/logs/ensure.log" 2>&1 ;;
@@ -115,8 +121,10 @@ case "${1:-status}" in
                    || echo "native   : sshd not running"
     agent_sshd_up && echo "agents   : sshd on 8023 (Tasker -> PRoot agent runs)" \
                   || { [ -s "$AGENT_KEYS" ] && echo "agents   : sshd DOWN" || echo "agents   : not installed (assistant/agents/install.sh)"; } ;;
-  pa-restart) shift; pa_start "${1:-}" && echo "mic server up" ;;
-  pa-stop) pa_kill && echo stopped || echo "still running" ;;
+  pa-restart) shift; [ -t 0 ] && SU_OK=1 || echo "no tty: not using su, mic server runs as a plain adb child" >&2
+    pa_start "${1:-}" && echo "mic server up" ;;
+  pa-stop) [ -t 0 ] && SU_OK=1
+    pa_kill && echo stopped || { echo "still running"; [ $SU_OK = 1 ] || echo "no tty: su not tried; run phone-services pa-stop in a terminal" >&2; } ;;
   va-restart) va_stop; va_start && echo "va-http up on 8780" ;;
   test-mic)
     f=$P/logs/test-mic.wav; s=${2:-3}

@@ -4,6 +4,8 @@ The stubs replace `timeout` (which every probe goes through, including the /dev/
 `adb` (with per-call scripted results), `pactl`, `curl`, `ssh`, `sleep` and `pkill`. Each stub appends its argv to calls.log.
 Run:  .venv/bin/python -m pytest -q
 """
+import os
+import pty
 import subprocess
 import sys
 import time
@@ -31,10 +33,11 @@ if [ -f "$STUB_DIR/adb-rules" ]; then
 fi
 case "$*" in
   connect*) [ "${STUB_CONNECT_WORKS:-0}" = 1 ] && touch "$STUB_DIR/adb-up"; echo "connected"; exit 0;;
+  *"shell nohup sh "*) touch "$STUB_DIR/pa-up"; exit 0;;  # plain launch: pactl sees the source from now on
   *"shell true") [ -f "$STUB_DIR/adb-up" ];;
   *) exit 0;;
 esac''',
-    "pactl": r'''echo "pactl $*" >>"$STUB_DIR/calls.log"; [ "${STUB_PA_UP:-0}" = 1 ] && echo "0	OpenSL_ES_source	module-sles-source.c"; exit 0''',
+    "pactl": r'''echo "pactl $*" >>"$STUB_DIR/calls.log"; { [ "${STUB_PA_UP:-0}" = 1 ] || [ -f "$STUB_DIR/pa-up" ]; } && echo "0	OpenSL_ES_source	module-sles-source.c"; exit 0''',
     "curl": r'''echo "curl $*" >>"$STUB_DIR/calls.log"; [ "${STUB_VA_UP:-0}" = 1 ]''',
     "ssh": r'''echo "ssh $*" >>"$STUB_DIR/calls.log"; exit 0''',
     "sleep": r'''exit 0''',
@@ -61,12 +64,18 @@ def ps(tmp_path):
         "HOME": str(tmp_path),
     }
 
-    def run(*args, adb_up=False, **env):
+    def run(*args, adb_up=False, tty=False, **env):
+        # stdin decides the su gate: /dev/null by default, a pty slave for tty=True (a human at a terminal)
         if adb_up:
             (tmp_path / "adb-up").touch()
-        p = subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True,
-                           timeout=30, env={**base_env, **env})
-        return p
+        master, slave = pty.openpty() if tty else (None, None)
+        try:
+            return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, timeout=30,
+                                  stdin=slave if tty else subprocess.DEVNULL, env={**base_env, **env})
+        finally:
+            if tty:
+                os.close(master)
+                os.close(slave)
 
     def calls():
         log = tmp_path / "calls.log"
@@ -191,11 +200,18 @@ def test_watch_second_instance_exits_immediately(ps):
 
 def test_pa_stop_falls_back_to_su_when_plain_pkill_does_not_stop_it(ps):
     ps.rules("0 *shell pkill*", "0 *shell pgrep*", "0 *su -c*")  # pgrep keeps finding it
-    p = ps("pa-stop")
+    p = ps("pa-stop", tty=True)
     shell = [c for c in ps.calls() if c.startswith("adb -s 127.0.0.1:5555 shell")]
     assert "pkill -f '[/]data/local/tmp/pa/bin/pulseaudio'" in shell[0] and "su -c" not in shell[0]
     assert any("su -c" in c and "pkill -f '[/]data/local/tmp/pa/bin/pulseaudio'" in c for c in shell)
     assert p.stdout.strip() == "still running"
+
+
+def test_pa_stop_without_tty_never_uses_su(ps):
+    ps.rules("0 *shell pkill*", "0 *shell pgrep*", "0 *su -c*")  # su would work, but nobody is at a terminal
+    p = ps("pa-stop")
+    assert not [c for c in ps.calls() if "su -c" in c]
+    assert p.stdout.strip() == "still running" and "phone-services pa-stop in a terminal" in p.stderr
 
 
 def test_pa_stop_without_su_when_plain_pkill_works(ps):
@@ -204,10 +220,10 @@ def test_pa_stop_without_su_when_plain_pkill_works(ps):
     assert not [c for c in ps.calls() if "su -c" in c]
 
 
-def _pa_start(ps, su_rc):
+def _pa_start(ps, su_rc, tty=True):
     # bundle present, mic already answers (so Termux's own pulseaudio is never touched)
     ps.rules("0 *test -x /data/local/tmp/pa/bin/pulseaudio*", f"{su_rc} *su -c*su 2000*", "0 *nohup sh*")
-    p = ps("pa-restart", adb_up=True, STUB_PORTS="4713", STUB_PA_UP="1")
+    p = ps("pa-restart", adb_up=True, tty=tty, STUB_PORTS="4713", STUB_PA_UP="1")
     return p, [c for c in ps.calls() if "run.sh" in c]
 
 
@@ -223,6 +239,59 @@ def test_pa_start_falls_back_to_plain_adb_child_when_su_fails(ps):
     assert p.stdout.strip() == "mic server up"
     assert len(launches) == 2 and "su 2000" in launches[0]
     assert launches[1] == "adb -s 127.0.0.1:5555 shell nohup sh /data/local/tmp/pa/run.sh >/dev/null 2>&1 &"
+
+
+def test_pa_start_without_tty_launches_plain_adb_child_only(ps):
+    p, launches = _pa_start(ps, 0, tty=False)  # su would work, but nobody is at a terminal
+    assert p.stdout.strip() == "mic server up" and "no tty" in p.stderr
+    assert launches == ["adb -s 127.0.0.1:5555 shell nohup sh /data/local/tmp/pa/run.sh >/dev/null 2>&1 &"]
+    assert not [c for c in ps.calls() if "su -c" in c or "su 2000" in c]
+
+
+def test_preset_readonly_su_ok_is_refused(ps):
+    # a readonly SU_OK=1 from BASH_ENV would survive the SU_OK=0 assignment and unlock su without a tty
+    bash_env = ps.dir / "bash_env"
+    bash_env.write_text("readonly SU_OK=1\n")
+    ps.rules("0 *test -x /data/local/tmp/pa/bin/pulseaudio*", "0 *su -c*su 2000*", "0 *nohup sh*")
+    p = ps("pa-restart", adb_up=True, STUB_PORTS="4713", STUB_PA_UP="1", BASH_ENV=str(bash_env))
+    assert p.returncode != 0
+    assert not [c for c in ps.calls() if "su -c" in c]
+
+
+def _no_su(ps):
+    return not [c for c in ps.calls() if "su -c" in c or "su 2000" in c]
+
+
+@pytest.mark.parametrize("tty", [False, True])
+def test_ensure_with_mic_down_never_uses_su(ps, tty):
+    # su would be granted and the mic never comes up: ensure must still not try root
+    ps.rules("0 *su -c*", "0 *test -x /data/local/tmp/pa/bin/pulseaudio*", "0 *nohup sh*")
+    ps("ensure", adb_up=True, tty=tty, STUB_PORTS="", STUB_VA_UP="1")
+    assert _no_su(ps)
+    assert [c for c in ps.calls() if c.endswith("shell nohup sh /data/local/tmp/pa/run.sh >/dev/null 2>&1 &")]
+    assert "mic DOWN - run: phone-services pa-restart" in (ps.dir / "phone" / "logs" / "ensure.log").read_text()
+
+
+def test_ensure_with_mic_down_starts_plain_child_and_names_pa_restart(ps):
+    ps.rules("0 *su -c*", "0 *test -x /data/local/tmp/pa/bin/pulseaudio*")  # the plain launch brings it up
+    ps("ensure", adb_up=True, STUB_PORTS="4713", STUB_VA_UP="1")
+    assert _no_su(ps)
+    log = (ps.dir / "phone" / "logs" / "ensure.log").read_text()
+    assert "mic started as adb child, no su" in log and "run: phone-services pa-restart" in log
+
+
+def test_ensure_with_bundle_missing_pushes_without_su(ps):
+    # bundle gone and an old server still found by pgrep: pa_push -> pa_kill must not escalate
+    bundle = ps.dir / "phone" / "pa"
+    bundle.mkdir(parents=True)
+    (bundle / "build-bundle.sh").write_text("#!/bin/bash\nexit 0\n")
+    (bundle / "build-bundle.sh").chmod(0o755)
+    ps.rules("0 *su -c*", "1 *test -x /data/local/tmp/pa/bin/pulseaudio*", "0 *shell pkill*", "0 *shell pgrep*")
+    ps("ensure", adb_up=True, STUB_PORTS="", STUB_VA_UP="1")
+    assert [c for c in ps.calls() if "shell pkill" in c]  # reached pa_kill
+    assert _no_su(ps)
+    log = (ps.dir / "phone" / "logs" / "ensure.log").read_text()
+    assert "could not stop the old mic server" in log and "mic DOWN - run: phone-services pa-restart" in log
 
 
 def test_unknown_command_prints_usage(ps):
