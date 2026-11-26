@@ -34,6 +34,8 @@ cliphist, 8780 voice trigger (X-Token), 8000 MIA, 1883 MQTT.
 - `phone_status` — services, battery, screen, foreground app. Call first when anything fails.
 - `screen(mode="ui"|"shot")` — numbered elements or a screenshot.
 - `act(action, target, text)` — tap, longtap, type, key, swipe, back, home; returns the screen after.
+- `scroll(direction="up", times=1)` — read-only scroll (up or down, 1-5 times); returns the screen after.
+  The advisor agents get this instead of `act`, so an app's answer can never make them tap or send.
 - `open(target)` — package name or deep link.
 - `notify(title, text)`.
 - `run_tasker_task(name, confirm)` and `mqtt_publish(topic, payload, confirm)` — first call

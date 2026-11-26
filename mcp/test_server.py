@@ -196,3 +196,20 @@ def test_parse_ps_tolerates_odd_rows(srv):
     assert rows[2] == {"pid": 888, "ppid": 1, "user": "root", "label": "u:r:x:s0", "stime": "Nov 07",
                        "elapsed": "1-02:03:04", "argv0": "old", "args": "old --day"}
     assert exes == {16471: BIN}
+
+
+# --- scroll: the advisors' only way to move the screen (mcp-prompts#143)
+def test_scroll_swipes_and_returns_the_screen(srv):
+    out = srv.scroll("up", times=2)
+    swipes = [c for c in srv.calls if c[1:3] == ["swipe", "up"]]
+    assert len(swipes) == 2 and "screen after scroll up" in out
+
+
+@pytest.mark.parametrize("direction", ["left", "right", "100 200 300 400", "tap", ""])
+def test_scroll_only_moves_up_or_down(srv, direction):
+    assert srv.scroll(direction).startswith("direction must be up or down") and not srv.calls
+
+
+def test_scroll_times_is_capped(srv):
+    srv.scroll("down", times=50)
+    assert len([c for c in srv.calls if c[1:2] == ["swipe"]]) == 5
