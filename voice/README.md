@@ -171,6 +171,17 @@ or not, against `settings get secure tts_default_locale`), else Edge first and t
 
 `TTS_OFFLINE_FALLBACK=0` turns the TTS fallbacks off.
 
+**Cooldowns.** A remote engine that has just failed for a reason that will not go away in
+seconds is skipped for a while, so turns go straight to the fallbacks. This also skips the
+3 s ElevenLabs SDK import; a fallback-only TTS call dropped from 5.2 s to 1.5 s.
+- ElevenLabs after `quota_exceeded` or an auth error: `ENGINE_COOLDOWN_QUOTA` s (default 900).
+- ElevenLabs or Edge after a network error or timeout: `ENGINE_COOLDOWN_NETWORK` s (default 120).
+- A success clears it; other errors (a bad voice id, say) never trigger one.
+- `eleven.py health` shows what is cooling down; `eleven.py health --reset` clears it, e.g.
+  right after topping up ElevenLabs credits. `ENGINE_COOLDOWN=0` turns cooldowns off.
+- State lives in `voice/state/engine-health.json` (not committed). ElevenLabs requests time out
+  after `ELEVENLABS_TIMEOUT` s (default 20), Edge after `EDGE_TTS_TIMEOUT` s (default 30).
+
 ## Clipboard history (optional)
 
 "What did I just copy?" works once the cliphist-android local API and its MCP server are set

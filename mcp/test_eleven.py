@@ -20,7 +20,9 @@ class QuotaError(Exception):
 
 
 @pytest.fixture
-def eleven(monkeypatch):
+def eleven(monkeypatch, tmp_path):
+    monkeypatch.setenv("VA_STATE_DIR", str(tmp_path / "state"))  # cooldown state per test
+    monkeypatch.delenv("ENGINE_COOLDOWN", raising=False)
     monkeypatch.setitem(sys.modules, "dotenv", types.SimpleNamespace(load_dotenv=lambda *a, **k: None))
     monkeypatch.setitem(sys.modules, "elevenlabs", types.SimpleNamespace(ElevenLabs=object))
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test-not-a-key")
@@ -262,3 +264,117 @@ def test_whisper_stt_settings_and_language_codes(eleven, monkeypatch):
     monkeypatch.delenv("STT_FALLBACK_LANGUAGE")
     eleven.whisper_stt("x.m4a")
     assert seen["language"] is None
+
+
+# --- cooldowns: skip a remote engine that has just failed for a lasting reason ---
+
+class ConnectError(Exception):
+    """Named like httpx's, which is what the ElevenLabs SDK raises when offline."""
+
+
+def counting_client(fail):
+    calls = []
+
+    def convert(**k):
+        calls.append(k)
+        raise fail
+    return types.SimpleNamespace(text_to_speech=types.SimpleNamespace(convert=convert),
+                                 speech_to_text=types.SimpleNamespace(convert=convert)), calls
+
+
+def quiet_fallback(eleven, monkeypatch):
+    monkeypatch.setattr(eleven, "edge_tts", lambda t, o: Path(o).write_bytes(b"x"))
+
+
+def test_quota_error_cools_elevenlabs_down(eleven, monkeypatch, tmp_path, capsys):
+    quiet_fallback(eleven, monkeypatch)
+    cl, calls = counting_client(QuotaError())
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "a.mp3")
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "b.mp3")
+    assert len(calls) == 1
+    err = capsys.readouterr().err
+    assert "ElevenLabs: skipped, cooling down" in err and "after quota_exceeded" in err
+    entry = json.loads(Path(eleven.HEALTH).read_text())["elevenlabs"]
+    assert entry["kind"] == "quota" and 890 < entry["until"] - eleven.time.time() <= 900
+
+
+def test_network_error_cools_down_briefly(eleven, monkeypatch, tmp_path):
+    quiet_fallback(eleven, monkeypatch)
+    cl, calls = counting_client(ConnectError("Name or service not known"))
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "a.mp3")
+    entry = json.loads(Path(eleven.HEALTH).read_text())["elevenlabs"]
+    assert entry["kind"] == "network" and entry["until"] - eleven.time.time() <= 120
+
+
+def test_other_errors_do_not_cool_down(eleven, monkeypatch, tmp_path):
+    quiet_fallback(eleven, monkeypatch)
+    cl, calls = counting_client(ValueError("bad voice id"))
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "a.mp3")
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "b.mp3")
+    assert len(calls) == 2 and eleven.load_health() == {}
+
+
+def test_cooldown_expires_and_success_clears_it(eleven, monkeypatch, tmp_path):
+    eleven.save_health({"elevenlabs": {"until": eleven.time.time() - 1, "kind": "quota", "reason": "quota_exceeded"}})
+    run_tts(eleven, monkeypatch, client(), "Hello", tmp_path / "a.mp3")
+    assert (tmp_path / "a.mp3").read_bytes() == b"ID3mp3" and eleven.load_health() == {}
+
+
+def test_cooldowns_can_be_turned_off(eleven, monkeypatch, tmp_path):
+    monkeypatch.setenv("ENGINE_COOLDOWN", "0")
+    quiet_fallback(eleven, monkeypatch)
+    cl, calls = counting_client(QuotaError())
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "a.mp3")
+    run_tts(eleven, monkeypatch, cl, "Hello", tmp_path / "b.mp3")
+    assert len(calls) == 2 and not Path(eleven.HEALTH).exists()
+
+
+def test_stt_skips_cooling_elevenlabs_without_calling_it(eleven, monkeypatch, tmp_path, capsys):
+    eleven.save_health({"elevenlabs": {"until": eleven.time.time() + 600, "kind": "quota", "reason": "quota_exceeded"}})
+    cl, calls = counting_client(AssertionError("must not be called"))
+    monkeypatch.setattr(eleven, "whisper_stt", lambda p: ("Ahoj", "ces"))
+    r = run_stt(eleven, cl, tmp_path, capsys)
+    assert calls == [] and json.loads(r.out)["text"] == "Ahoj" and "skipped, cooling down" in r.err
+
+
+def test_edge_network_failure_cools_edge_down(eleven):
+    def offline():
+        raise TimeoutError()
+    with pytest.raises(TimeoutError):
+        eleven.remote("edge-tts", offline)
+    with pytest.raises(eleven.Cooling, match="after TimeoutError"):
+        eleven.remote("edge-tts", lambda: pytest.fail("cooling"))
+
+
+def test_corrupt_state_counts_as_healthy(eleven):
+    Path(eleven.HEALTH).parent.mkdir(parents=True, exist_ok=True)
+    Path(eleven.HEALTH).write_text("{not json")
+    assert eleven.cooling("elevenlabs") is None
+    assert eleven.remote("elevenlabs", lambda: 7) == 7
+
+
+def test_health_lists_and_resets(eleven, capsys):
+    eleven.health([])
+    assert "no engine is cooling down" in capsys.readouterr().out
+    eleven.save_health({"elevenlabs": {"until": eleven.time.time() + 300, "kind": "quota",
+                                       "reason": "quota_exceeded", "at": "2026-11-26 16:00:00"}})
+    eleven.health([])
+    assert "elevenlabs: quota (quota_exceeded)" in capsys.readouterr().out
+    eleven.health(["--reset"])
+    assert eleven.load_health() == {}
+
+
+def test_lazy_client_imports_the_sdk_only_when_used(eleven, monkeypatch):
+    built = []
+
+    class SDK:
+        def __init__(self, **k):
+            built.append(k)
+            self.text_to_speech = "tts-api"
+
+    monkeypatch.setitem(sys.modules, "elevenlabs", types.SimpleNamespace(ElevenLabs=SDK))
+    monkeypatch.setenv("ELEVENLABS_TIMEOUT", "7")
+    lazy = eleven.LazyClient()
+    assert built == []
+    assert lazy.text_to_speech == "tts-api" and lazy.text_to_speech == "tts-api"
+    assert built == [{"timeout": 7.0}]
