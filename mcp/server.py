@@ -13,9 +13,10 @@ Deliberately absent: raw shell, su, installing apps, granting permissions.
 
 Confirmation: claude -p has no interactive prompt, so actions that change things outside the
 phone UI return a preview plus a one-time token. The model reads the preview to the user and
-calls again with confirm=<token> only after an explicit "yes". Lights under mia/lights/ are
-exempt (user decision 2026-11-08). Tokens live in a file because each claude -p turn starts a
-new server process.
+calls again with confirm=<token> only after an explicit "yes". The light-engine topics
+mia/lights/{mood,effect,off,sound} are exempt (user decision 2026-11-08); they are the `direct`
+class of the MIA topic contract (mia spec/interfaces/topics.md, "Command Safety Classes").
+Tokens live in a file because each claude -p turn starts a new server process.
 """
 from __future__ import annotations
 
@@ -64,7 +65,9 @@ from turnlock import turn_lock  # noqa: E402  (shared with voice/http_trigger.py
 
 KEYS = {"back", "home", "enter", "recent", "del", "tab", "space", "menu", "search",
         "volume_up", "volume_down", "power", "app_switch"}
-MQTT_DIRECT = re.compile(r"^mia/lights/[a-z0-9_/-]+$")          # lights: no confirmation
+# MIA topic contract (mia spec/interfaces/topics.md): `direct` topics need no confirmation,
+# everything else under mia/ and zigbee2mqtt/ is `confirm`. Keep in step with the contract.
+MQTT_DIRECT = re.compile(r"^mia/lights/(mood|effect|off|sound)$")
 MQTT_CONFIRM = re.compile(r"^(mia|zigbee2mqtt)/[A-Za-z0-9_./-]+$")  # other home/car topics
 
 mcp = MCPServer(
@@ -328,7 +331,7 @@ def run_tasker_task(name: str, confirm: str = "") -> str:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True))
 def mqtt_publish(topic: str, payload: str, confirm: str = "") -> str:
-    """Publish to the MIA MQTT broker. mia/lights/* (mood, effect, off) runs directly; other
+    """Publish to the MIA MQTT broker. mia/lights/{mood,effect,off,sound} run directly; other
     mia/* and zigbee2mqtt/* topics need confirmation (first call returns a preview and a token);
     anything else is refused. For valid moods and topics fetch the mcp-prompts prompt
     `openclaw-home-command-interpreter`."""
@@ -343,7 +346,8 @@ def mqtt_publish(topic: str, payload: str, confirm: str = "") -> str:
         if not _consume_confirmation(confirm, "mqtt", params):
             return "invalid or expired confirmation token; ask again"
     else:
-        return "topic not allowed (allowed: mia/lights/*, or mia/* and zigbee2mqtt/* with confirmation)"
+        return ("topic not allowed (allowed: mia/lights/{mood,effect,off,sound}, "
+                "or mia/* and zigbee2mqtt/* with confirmation)")
     rc, out = _run(["mosquitto_pub", "-h", MQTT_HOST, "-t", topic, "-m", payload], timeout=10)
     return f"published to {topic}" if rc == 0 else f"failed: {out}"
 

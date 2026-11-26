@@ -38,7 +38,8 @@ cliphist, 8780 voice trigger (X-Token), 8000 MIA, 1883 MQTT.
 - `notify(title, text)`.
 - `run_tasker_task(name, confirm)` and `mqtt_publish(topic, payload, confirm)` — first call
   returns a preview and a token; repeat with `confirm=<token>` only after the user's explicit yes.
-  `mqtt_publish` to `mia/lights/*` runs directly.
+  `mqtt_publish` to `mia/lights/mood`, `effect`, `off` and `sound` runs directly (the `direct`
+  class of the MIA topic contract); other `mia/*` and `zigbee2mqtt/*` topics need the token.
 - `speak(text)` — say text on the phone speaker (ElevenLabs TTS, cut at 1000 characters).
 - `listen(max_s=8)` — beep, record the phone mic until a pause (1..30 s), return JSON
   `{"text", "language"}` or "no speech heard".

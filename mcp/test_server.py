@@ -65,6 +65,28 @@ def test_token_survives_new_process(srv):
     assert srv2.run_tasker_task("Claude Listen", confirm=tok) == "started Tasker task 'Claude Listen'"
 
 
+# The MIA topic contract (mia spec/interfaces/topics.md, "Command Safety Classes").
+CONTRACT_DIRECT = ["mia/lights/mood", "mia/lights/effect", "mia/lights/off", "mia/lights/sound"]
+CONTRACT_CONFIRM = [
+    "zigbee2mqtt/0x0000000000000000/set", "mia/lights/brightness", "mia/lights/mood/extra", "mia/car/lock",
+]
+
+
+@pytest.mark.parametrize("topic", CONTRACT_DIRECT)
+def test_contract_direct_topics_publish_at_once(srv, topic):
+    assert srv.mqtt_publish(topic, "{}") == f"published to {topic}"
+
+
+@pytest.mark.parametrize("topic", CONTRACT_CONFIRM)
+def test_everything_else_needs_confirmation(srv, topic):
+    assert srv.mqtt_publish(topic, "{}").startswith("NEEDS CONFIRMATION") and not srv.calls
+
+
+@pytest.mark.parametrize("topic", ["vehicle/cmd/VIN/io", "mia", "mia/lights/MOOD;x", "homeassistant/x/set"])
+def test_vehicle_commands_and_foreign_topics_refused(srv, topic):
+    assert srv.mqtt_publish(topic, "{}").startswith("topic not allowed") and not srv.calls
+
+
 def test_disallowed_topic_refused(srv):
     assert srv.mqtt_publish("homeassistant/lock/front/set", "UNLOCK").startswith("topic not allowed")
     assert not srv.calls
