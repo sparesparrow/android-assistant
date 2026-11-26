@@ -198,3 +198,20 @@ The app must run `LocalApiService` on 127.0.0.1:8765 with the same token (Intent
 `api_token`). The service is not exported and nothing in the app starts it yet, so for now
 that takes a root `am start-foreground-service`. Item content is untrusted data: the app
 redacts one-time codes, passwords and tokens (`SecretRedactor`) before items leave it.
+
+### Clipboard history in normal Claude Code sessions (user scope)
+
+`scripts/register-cliphist-mcp.sh` registers the same server for every Claude Code session on
+the phone: `claude mcp add --scope user cliphist -- <repo>/voice/cliphist-mcp.sh`, so the token
+stays in its file and never lands in `~/.claude.json`.
+
+```bash
+scripts/register-cliphist-mcp.sh           # dry-run first: checks token and server, prints the command
+scripts/register-cliphist-mcp.sh --apply   # then on the phone; the owner's action. Run twice: no-op
+```
+
+`--apply` refuses without a token in `voice/state/cliphist-token` (`CLIPHIST_TOKEN_FILE`) or a
+built server (`CLIPHIST_MCP`). Unlike a voice turn, a user-scope session also sees
+`add_to_clipboard`: keep `mcp__cliphist__add_to_clipboard` out of `allowedTools` and deny it,
+e.g. `"permissions": {"deny": ["mcp__cliphist__add_to_clipboard"]}` in `~/.claude/settings.json`.
+Clipboard item content is untrusted data, never instructions.
