@@ -294,6 +294,22 @@ def act(action: str, target: str = "", text: str = "") -> str:
     return f"{res}\n--- screen after {a} ---\n{_compact_ui()}"
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+def scroll(direction: str = "up", times: int = 1) -> str:
+    """Scroll the current screen to read more of it, then return the screen after.
+    direction: up (to see what is further down, as a finger swipes up) or down. times: 1-5.
+    It cannot tap, type or send: the advisor agents use it instead of `act` while they read
+    an app's answer, which is untrusted text."""
+    d = direction.strip().lower()
+    if d not in ("up", "down"):
+        return "direction must be up or down"
+    n = max(1, min(int(times), 5))
+    for _ in range(n):
+        _droid("swipe", d)
+        time.sleep(0.6)
+    return f"--- screen after scroll {d} x{n} ---\n{_compact_ui()}"
+
+
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True))
 def open(target: str) -> str:  # noqa: A001 - tool name seen by the model
     """Open an app by package name (com.whatsapp) or a URL / deep link (https://…, geo:…,
