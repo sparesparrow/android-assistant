@@ -36,7 +36,7 @@ Messages that are not JSON objects or lack one of these keys are dropped by `wai
 - **Not agents.** `mqtt_publish` allows only `mia/*` and `zigbee2mqtt/*` and refuses
   `phone/events/*`, so an agent cannot fake an event for another agent.
 - **Subscribe:** agents, through `wait_event(kind, match="", timeout_s=60)`:
-  - `match` is an optional case-insensitive regex over title + text.
+  - `match` is an optional case-insensitive regex, searched in the title and in the text.
   - The timeout is clamped to 1..3600 s.
   - It returns `{"kind", "events": [...], "untrusted": true, "note"}`, with at most 20 events and the text cut at 2000 characters.
   - On timeout, `events` is `[]`.

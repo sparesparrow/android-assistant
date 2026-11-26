@@ -113,6 +113,18 @@ def test_match_filter_case_insensitive_with_czech(srv, sub):  # noqa: F811
     assert cmd[cmd.index("-C") + 1] == "20"  # broker cannot filter: collect until -W or 20
 
 
+def test_values_pass_through_unchanged(srv, sub):  # noqa: F811
+    raw = {"kind": "notification", "source_pkg": "com.x", "title": "T", "text": "body",
+           "when": 1764150000000, "id": 42}
+    sub.reply = (0, json.dumps(raw))
+    assert json.loads(srv.wait_event("notification"))["events"] == [raw]
+
+
+def test_match_anchors_apply_to_title_and_text(srv, sub):  # noqa: F811
+    sub.reply = (0, _ev(title="Gemini", text="Výzkum je hotový"))
+    assert len(json.loads(srv.wait_event("notification", match="^výzkum"))["events"]) == 1
+
+
 def test_match_does_not_search_package(srv, sub):  # noqa: F811
     sub.reply = (0, _ev(source_pkg="com.whatsapp", title="Hi", text="there"))
     assert json.loads(srv.wait_event("notification", match="whatsapp"))["events"] == []
