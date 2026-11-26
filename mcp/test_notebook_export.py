@@ -35,3 +35,58 @@ def test_chunks_stay_under_limit(monkeypatch):
     parts = ne.chunk_projects({"A": "x" * 150, "B": "y" * 150,
                                "Big": "## Big\n" + "".join(f"\n#### Task: t{i}\n" + "z" * 90 for i in range(5))})
     assert len(parts) >= 4 and all("Tasker configuration" in body for _, body in parts)
+
+
+# --- known token formats (#143). Fakes are assembled at run time, so no token-shaped
+# literal sits in the repository for secret scanners or readers to trip over.
+def fake(prefix: str, n: int, alphabet: str = "A1b2C3d4E5f6G7h8") -> str:
+    return prefix + (alphabet * (n // len(alphabet) + 1))[:n]
+
+
+KNOWN_FORMATS = {
+    "aws access key": fake("AK" + "IA", 16, "ABCDEFGHIJ2345KL"),
+    "google oauth token": fake("ya" + "29.", 40),
+    "google refresh token": fake("1//" + "0g", 40),
+    "gitlab token": fake("gl" + "pat-", 20),
+    "github fine-grained token": fake("github" + "_pat_", 60),
+    "anthropic key": fake("sk-" + "ant-api03-", 40),
+    "huggingface token": fake("h" + "f_", 34),
+    "npm token": fake("np" + "m_", 36),
+    "short bearer token": "Bearer " + fake("", 12),
+    "private key block": "-----BEGIN " + "OPENSSH PRIVATE KEY-----\n" + fake("", 70) + "\nshort\n-----END " + "OPENSSH PRIVATE KEY-----",
+}
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("name", sorted(KNOWN_FORMATS))
+def test_known_token_formats_are_redacted(name):
+    secret = KNOWN_FORMATS[name]
+    out = ne.Redactor([])(f"before {secret} after")
+    assert secret not in out and "[redacted]" in out, out
+    assert out.startswith("before ") and out.endswith(" after")
+
+
+@pytest.mark.parametrize("text, secret, kept", [
+    ("https://admin:" + "hunter22@example.com/x", "hunter22", "https://"),
+    ("GET /v1?api_key=" + "s3cr3tv4l&x=1", "s3cr3tv4l", "api_key="),
+    ("curl 'https://h/x?token=" + "abc12345'", "abc12345", "token="),
+    ("password=" + "hunter22 next", "hunter22", "password="),
+    ('"client_secret": "' + 'zzTop1234"', "zzTop1234", "client_secret"),
+    ("Authorization: Basic " + "dXNlcjpwYXNz", "dXNlcjpwYXNz", "Authorization: Basic"),
+])
+def test_credentials_in_urls_and_key_value_pairs(text, secret, kept):
+    out = ne.Redactor([])(text)
+    assert secret not in out and kept in out, out
+
+
+@pytest.mark.parametrize("text", [
+    "Tasker 6.7.9 on Android 16, build 2026.11.26",
+    'arg0="%api_key"; arg1="%greeting"',
+    "https://github.com/sparesparrow/android-assistant/pull/9",
+    "Perform Task 'Claude Say' with %par1",
+    "the password field stays empty; token count 12",
+])
+def test_ordinary_text_is_left_alone(text):
+    assert ne.Redactor([])(text) == text
