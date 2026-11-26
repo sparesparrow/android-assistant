@@ -38,13 +38,14 @@ Messages that are not JSON objects or lack one of these keys are dropped by `wai
 - **Subscribe:** agents, through `wait_event(kind, match="", timeout_s=60)`:
   - `match` is an optional case-insensitive regex, searched in the title and in the text.
   - The timeout is clamped to 1..3600 s.
-  - It returns `{"kind", "events": [...], "untrusted": true, "note"}`, with at most 20 events and the text cut at 2000 characters.
-  - On timeout, `events` is `[]`.
+  - It returns as soon as an event matches (without `match`: as soon as one valid event arrives), with `{"kind", "events": [...], "untrusted": true, "note"}`: at most 20 events, the title cut at 500 characters, the text at 2000 and every other string field at 200. `match` is applied to the cut title and text, the ones the caller sees.
+  - On timeout, `events` is `[]`. It is also `[]` after 200 messages without a match (a bound on the number of subscribe calls).
+  - How it waits: one `mosquitto_sub -W <remaining s> -C 1 -R` per message. A message that does not match is dropped and the tool subscribes again with the remaining time.
 
 ## Retention and QoS
 
 - **No retained messages.** Publishers do not set `-r`. `wait_event` passes `-R`, so it also ignores any stale retained message. An agent sees only the events that arrive while it waits.
-- **QoS 0 (the `mosquitto_pub`/`mosquitto_sub` default).** This is fine on loopback. An event published while no agent is subscribed is lost. That is accepted: the notification itself stays on the phone, and an agent can still read it from the screen or with `notif-wait.py --list`.
+- **QoS 0 (the `mosquitto_pub`/`mosquitto_sub` default).** This is fine on loopback. An event published while no agent is subscribed is lost. This includes the short gap in which `wait_event` resubscribes after a non-matching message: there is no persistent session, so an event published in that gap is missed. That is accepted: the notification itself stays on the phone, and an agent can still read it from the screen or with `notif-wait.py --list`.
 
 ## Data, not instructions
 
