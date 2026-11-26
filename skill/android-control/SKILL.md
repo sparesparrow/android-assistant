@@ -24,6 +24,7 @@ $D find <text>          # search current screen
 $D tap <text> | #<idx> | <x> <y>    # text must match exactly one element, else it lists candidates
 $D longtap …            # same targets
 $D type <text>          # into focused field; non-ASCII (diacritics, emoji) goes via clipboard + paste
+                        # (termux-clipboard-set if Termux:API is installed, else the share sheet's Copy)
 $D key back|home|enter|recent|del|<keycode>
 $D swipe up|down|left|right | x1 y1 x2 y2
 $D wait <text> [secs]   # poll until element appears
