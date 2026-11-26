@@ -1,3 +1,4 @@
 elevenlabs>=2.77
 python-dotenv>=1.0
 edge-tts>=7.0  # optional: free Microsoft Edge neural voices when ElevenLabs fails
+faster-whisper>=1.1  # optional: offline speech-to-text when ElevenLabs fails
