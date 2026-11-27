@@ -784,8 +784,8 @@ def send(app: str, ns: list[dict]) -> list[dict]:
     _check_login(app, ns)
     # Text that arrived by share intent may need a confirmation; the user asked for this prompt
     # to go to this app, so confirm (same as gemini.send).
-    ok = find(ns, gemini.SHARE_OK, exact=True)
-    if ok is not None and ok.get("cls") == "Button":
+    ok = gemini.share_consent(ns)
+    if ok is not None:
         tap(*clickable_at(ns, ok))
         time.sleep(2.0)
         ns = nodes()
