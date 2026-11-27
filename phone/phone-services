@@ -11,7 +11,8 @@
 #   phone-services native <cmd...>   run a command in NATIVE Termux (outside PRoot) over ssh
 #   phone-services ssh-key           create the PRoot key and authorize it in Termux
 #   (ensure also starts the agent sshd on 127.0.0.1:8023 once assistant/agents/install.sh ran:
-#    Tasker -> Termux -> ssh into this PRoot -> run-agent.sh)
+#    Tasker -> Termux -> ssh into this PRoot -> run-agent.sh, and the app-eval watcher once
+#    state/app-eval/watch.enabled exists: it re-runs the app-agent eval after an app update)
 #   Magisk su only from pa-restart / pa-stop with a tty on stdin (a human at a terminal). ensure, watch
 #   and headless callers (claude -p, Tasker, agent sshd) never run su: mic down -> plain adb child + log.
 set -u
@@ -68,6 +69,12 @@ pa_start() {
 }
 VA=${VA_DIR:-/root/voice-assistant}
 va_up() { timeout 3 curl -fsS http://127.0.0.1:8780/health >/dev/null 2>&1; }
+EVAL_STATE=${ASSISTANT_STATE:-$P/state}/app-eval
+eval_watch_wanted() { [ -e "$EVAL_STATE/watch.enabled" ]; }
+eval_watch_up() { mkdir -p "$EVAL_STATE"; ! flock -n "$EVAL_STATE/watch.lock" true 2>/dev/null; }
+eval_watch_start() {  # the watcher holds watch.lock while it runs; no fds of ours leak into it
+  setsid nohup "$P/../agents/app-eval.sh" watch >>"$EVAL_STATE/watch.log" 2>&1 8>&- 9>&- &
+}
 va_start() {  # voice-assistant HTTP trigger for Tasker's HTTP Request action
   [ -f "$VA/http_trigger.py" ] || return 1
   # 8>&- 9>&-: don't let the long-lived server inherit the ensure/watch lock fds (it would hold them forever)
@@ -108,6 +115,7 @@ case "${1:-status}" in
       pa_up && echo "mic ok" || { pa_start && echo "mic started as adb child, no su (dies with adbd) - for a lasting one run: phone-services pa-restart" ||
                                   echo "mic DOWN - run: phone-services pa-restart"; }
       va_up && echo "va-http ok" || { va_start && echo "va-http started" || echo "va-http FAILED"; }
+      eval_watch_wanted && { eval_watch_up && echo "app-eval watch ok" || { eval_watch_start; echo "app-eval watch started"; }; }
       agent_sshd_up && echo "agent-sshd ok" || { agent_sshd_start; case $? in 0) echo "agent-sshd started" ;; 2) ;; *) echo "agent-sshd FAILED" ;; esac; }
     } >>"$P/logs/ensure.log" 2>&1 ;;
   watch)  # keep things up while Debian runs (adbd restarts kill the mic server); one instance
@@ -119,6 +127,7 @@ case "${1:-status}" in
     va_up && echo "va-http  : OK (127.0.0.1:8780, token in $VA/state/http-token)" || echo "va-http  : DOWN"
     port_open 8022 && echo "native   : sshd on 8022$( native true 2>/dev/null && echo ', key login OK' || echo ', key login FAILED')" \
                    || echo "native   : sshd not running"
+    eval_watch_wanted && { eval_watch_up && echo "app-eval : watching for app updates" || echo "app-eval : watcher DOWN"; }
     agent_sshd_up && echo "agents   : sshd on 8023 (Tasker -> PRoot agent runs)" \
                   || { [ -s "$AGENT_KEYS" ] && echo "agents   : sshd DOWN" || echo "agents   : not installed (assistant/agents/install.sh)"; } ;;
   pa-restart) shift; [ -t 0 ] && SU_OK=1 || echo "no tty: not using su, mic server runs as a plain adb child" >&2
