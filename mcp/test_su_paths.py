@@ -11,7 +11,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MCP = ROOT / "mcp"
-SU = re.compile(r"""(\bsu -c\b|["']su["']|\bsu 2000\b)""")
+# su invocations: `su -c`, a quoted "su" argument, `su <uid|root>`, /system/bin/su, `magisk su`
+SU = re.compile(r"""(\bsu -c\b|["']su["']|\bsu (\d+|root)\b|/s?bin/su\b|\bmagisk su\b)""")
+
+
+def tty_guarded(line: str) -> bool:
+    """SU_OK=1 is set only right after a positive tty test ([ -t 0 ] &&), never a negated one."""
+    return bool(re.search(r"\[ -t 0 \] && SU_OK=1", line))
 
 
 def local_closure(start: Path) -> set[Path]:
@@ -59,7 +65,7 @@ def test_phone_services_uses_su_only_at_a_terminal():
     for body in (_branch(script, "ensure"), _branch(script, "watch"), _branch(script, "status"), native_fn):
         assert not SU.search(body) and "SU_OK=1" not in body
     setters = [ln for ln in script.splitlines() if "SU_OK=1" in ln and not ln.lstrip().startswith("#")]
-    assert setters and all("[ -t 0 ]" in ln for ln in setters)
+    assert setters and all(tty_guarded(ln) for ln in setters)
     lines = script.splitlines()
     su_at = [i for i, ln in enumerate(lines) if SU.search(ln) and not ln.lstrip().startswith("#")]
     assert su_at and all("SU_OK = 1" in lines[i] or "SU_OK = 1" in lines[i - 1] for i in su_at)  # guarded
@@ -75,3 +81,17 @@ def test_agents_only_have_assistant_and_prompt_tools():
 def test_voice_turns_disallow_the_shell():
     text = (ROOT / "voice" / "assistant.sh").read_text()
     assert re.search(r"--disallowedTools[^\n]*\bBash\b", text) and "--permission-mode dontAsk" in text
+
+
+def test_su_pattern_catches_the_common_spellings():
+    for s in ['su -c "id"', "'su'", "su 2000 -c x", "/system/bin/su -c id", "su 0 sh", "su root -c id",
+              "magisk su -c id", '["su", "-c"]']:
+        assert SU.search(s), s
+    for s in ["sudo apt", "result", "issue", "su-like", "pa_kill su not tried"]:
+        assert not SU.search(s), s
+
+
+def test_tty_guard_check_rejects_a_negated_test():
+    assert tty_guarded('pa-restart) shift; [ -t 0 ] && SU_OK=1 || echo no tty')
+    assert not tty_guarded('pa-restart) [ ! -t 0 ] && SU_OK=1')
+    assert not tty_guarded("SU_OK=1")
