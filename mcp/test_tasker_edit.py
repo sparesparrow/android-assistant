@@ -61,3 +61,60 @@ def test_restore_accepts_only_tasker_config():
     assert te.is_tasker_data('<?xml version="1.0"?><TaskerData sr="" ver="2"></TaskerData>')
     assert not te.is_tasker_data("<?xml version='1.0'?><map><string name=\"qst0\">x</string></map>")
     assert not te.is_tasker_data("not xml")
+
+
+# --- root writes need a yes typed on the controlling terminal (mcp-prompts#143) -------------
+
+@pytest.fixture()
+def rooted(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(te, "WORK", tmp_path / "work")
+    monkeypatch.setattr(te, "BACKUPS", tmp_path / "backups")
+    monkeypatch.setattr(te, "adb", lambda cmd, inp=None, timeout=60: sent.append(cmd) or RAW.encode())
+    backup = tmp_path / "b.xml"
+    backup.write_text(RAW)
+    return sent, backup
+
+
+def _answer(monkeypatch, reply):
+    def ask(question):
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+    monkeypatch.setattr(te, "ask_tty", ask)
+
+
+@pytest.mark.parametrize("argv", [["restore", "B"], ["push"], ["tile", "0", "Keep Me"]])
+def test_root_writes_refuse_without_a_terminal(rooted, monkeypatch, argv):
+    sent, backup = rooted
+    _answer(monkeypatch, OSError("No such device or address: '/dev/tty'"))
+    with pytest.raises(SystemExit) as e:
+        te.main([backup.as_posix() if a == "B" else a for a in argv])
+    assert e.value.code == 3 and sent == []  # no su read or write happened
+
+
+def test_root_write_refused_unless_the_answer_is_yes(rooted, monkeypatch):
+    sent, backup = rooted
+    _answer(monkeypatch, "y")
+    with pytest.raises(SystemExit) as e:
+        te.main(["restore", str(backup)])
+    assert e.value.code == 3 and sent == []
+
+
+def test_root_write_goes_ahead_after_yes(rooted, monkeypatch):
+    sent, backup = rooted
+    _answer(monkeypatch, "yes")
+    written = []
+    monkeypatch.setattr(te, "write_live", lambda text, path=te.LIVE: written.append(path))
+    assert te.main(["restore", str(backup)]) == 0 and written == [te.LIVE]
+
+
+def test_reads_and_dry_runs_need_no_terminal(rooted, monkeypatch):
+    sent, _ = rooted
+    _answer(monkeypatch, OSError("no tty"))
+    assert te.main(["pull"]) == 0 and sent  # su read is fine: it changes nothing
+
+
+def test_restore_accepts_tasker_s_own_output():
+    # Tasker writes attributes without a space between them (RAW); a real backup must restore
+    assert te.is_tasker_data(RAW)

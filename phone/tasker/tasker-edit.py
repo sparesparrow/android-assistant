@@ -15,6 +15,10 @@ not touched. This tool:
   tile N TASK [LABEL]        point Tasker's Quick Settings tile N (0, 1, 2) at TASK; the tile
                              settings live in shared_prefs/...preffy.xml, written the same way
 
+push, restore and tile write as root, so each asks for "yes" on the controlling terminal
+(/dev/tty). A headless agent (claude -p, a Tasker run, ssh without -t) has none and gets exit 3:
+a person runs these commands in Termux. pull, ls and edit need no confirmation.
+
 OPS (repeatable):
   --delete-project NAME      the project and everything in it (profiles, tasks, scenes)
   --delete-profile ID|NAME   a profile (its enter/exit tasks too if nothing else uses them)
@@ -50,6 +54,29 @@ BACKUPS = Path("/root/phone/state/tasker-backups")
 
 
 # ------------------------------------------------------------------ device
+def ask_tty(question: str) -> str:
+    """Ask on the controlling terminal, not stdin. A headless agent (claude -p, a Tasker run, ssh
+    without -t) has no /dev/tty, so it cannot answer; piping "yes" into stdin does not count."""
+    with open("/dev/tty", "r+") as tty:
+        tty.write(question)
+        tty.flush()
+        return tty.readline().strip()
+
+
+def confirm_root_write(what: str) -> None:
+    """Root writes (push, restore, tile) need a person at a terminal to type yes (mcp-prompts#143)."""
+    try:
+        answer = ask_tty(f"{what}\nThis writes Tasker's files as root (su) and restarts Tasker. Type yes to go ahead: ")
+    except OSError:
+        print("tasker-edit: this writes Tasker's files as root and needs a yes typed at a terminal; "
+              "a headless agent cannot give it. Run the same command yourself in Termux (`debian`).",
+              file=sys.stderr)
+        raise SystemExit(3)
+    if answer != "yes":
+        print("tasker-edit: not confirmed, nothing written", file=sys.stderr)
+        raise SystemExit(3)
+
+
 def adb(cmd: str, inp: bytes | None = None, timeout: int = 60) -> bytes:
     p = subprocess.run(["adb", "-s", SERIAL, "shell", cmd], input=inp, capture_output=True,
                        timeout=timeout)
@@ -96,7 +123,7 @@ def write_live(text: str, path: str = LIVE) -> None:
 def is_tasker_data(raw: str) -> bool:
     """True for a Tasker config (autobackup.xml); False for prefs files and anything else."""
     try:
-        return ET.fromstring(raw.encode()).tag == "TaskerData"
+        return tree(raw).tag == "TaskerData"   # tree(): Tasker omits spaces between attributes
     except ET.ParseError:
         return False
 
@@ -371,6 +398,12 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "push":                    # push has no dry run
+        confirm_root_write("push the edited work copy over Tasker's live config")
+    elif a.cmd == "restore":
+        confirm_root_write(f"restore {a.arg} over Tasker's live config")
+    elif a.cmd == "tile" and not a.dry_run:
+        confirm_root_write(f"point Quick Settings tile {a.arg} at {' '.join(a.rest)!r}")
     WORK.mkdir(parents=True, exist_ok=True)
     work = WORK / "autobackup.xml"
 

@@ -200,11 +200,25 @@ def reply_after(ns: list[dict], prompt: str) -> str:
     return text
 
 
+def generating(ns: list[dict]) -> bool:
+    """The answer is still being written: the send button is a "Stop generating" button. Until
+    then the chat shows only the thinking headings ("Analyzing Next Steps"), which can stay the
+    same for many seconds and must not be taken for the answer."""
+    return any(n.get("pkg") == PKG and label(n).startswith("stop generating") for n in ns)
+
+
 def wait_reply(prompt: str, wait_s: int, step: float = 3.0) -> str:
+    """The answer once it has stopped changing and is no longer generating, or what is there
+    at the deadline. Fails fast if the notebook leaves the screen (someone else is using the
+    phone): waiting on would only read another app."""
     end, last = time.time() + wait_s, None
     while True:
-        cur = reply_after(nodes(), prompt)
-        if cur and cur == last or time.time() >= end:
+        ns = nodes()
+        if not any(n.get("pkg") == PKG for n in ns):    # not in_notebook(): the keyboard can hide the tabs
+            raise GeminiError("the notebook is no longer on screen (is someone using the phone?); "
+                              "read the answer later with notebook_read")
+        cur = reply_after(ns, prompt)
+        if cur and cur == last and not generating(ns) or time.time() >= end:
             return cur
         last = cur
         time.sleep(step)
