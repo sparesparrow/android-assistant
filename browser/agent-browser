@@ -1,0 +1,135 @@
+#!/bin/sh
+# agent-browser: a Chromium in the PRoot for agents, on the VNC desktop (mcp-prompts issue #144).
+#
+# Some tasks need a full web browser rather than an Android app, and driving the phone's browser
+# app through uiautomator is slow and takes the phone's one screen. This Chromium runs on the
+# PRoot's VNC display instead, so the phone screen stays free and the user can watch, or take
+# over, in a VNC viewer.
+#
+#   - Its own profile ($AGENT_BROWSER_PROFILE, default ~/.config/chromium-agent): no logged-in
+#     accounts, no extensions, no sync. It is not the user's Chromium (~/.config/chromium,
+#     DevTools on 9222), which holds their logins and stays untouched.
+#   - DevTools on 127.0.0.1:$AGENT_BROWSER_PORT (default 9223) only.
+#   - One agent at a time: `mcp` holds $STATE/browser.lock for as long as the MCP server runs.
+#     The VNC display is a screen of its own, so it has its own lock, separate from agent.lock.
+#   - Stops by itself after $AGENT_BROWSER_IDLE_MIN minutes (default 10) with no MCP client.
+#
+# Usage:
+#   agent-browser start [URL]   start it (and the idle watcher) unless it runs
+#   agent-browser stop          stop it
+#   agent-browser status        is it up, its memory, and how many MCP clients are attached
+#   agent-browser mcp [ARGS]    the MCP server for an agent: starts the browser, takes the lock,
+#                               runs playwright-mcp on it (ARGS go to playwright-mcp)
+#   agent-browser reap          stop it if no MCP client is attached and it has been idle long enough
+#
+# MCP config:  claude mcp add -s user agent-browser -- /root/android-assistant/browser/agent-browser mcp
+set -eu
+
+PORT=${AGENT_BROWSER_PORT:-9223}
+PROFILE=${AGENT_BROWSER_PROFILE:-$HOME/.config/chromium-agent}
+DISPLAY_NO=${VNC_DISPLAY:-1}
+IDLE_MIN=${AGENT_BROWSER_IDLE_MIN:-10}
+STATE=${ASSISTANT_STATE:-/root/phone/state}
+VNC=${VNC_SH:-/root/vnc/vnc.sh}
+PLAYWRIGHT_MCP=${PLAYWRIGHT_MCP:-playwright-mcp}
+LOG_DIR=${AGENT_BROWSER_LOG_DIR:-$STATE/logs}
+LOCK=$STATE/browser.lock
+STAMP=$STATE/agent-browser.last-client
+CDP=http://127.0.0.1:$PORT
+MATCH="remote-debugging-port=$PORT"
+
+up() { curl -s -m 2 "$CDP/json/version" >/dev/null 2>&1; }
+# Processes whose command line matches $2 and whose name is $1. The name check matters: a shell
+# whose own command line mentions the port must never be counted, or killed.
+named() {
+  for pid in $(pgrep -f -- "$2" 2>/dev/null); do
+    [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "$1" ] && echo "$pid"
+  done
+  return 0
+}
+# One flock per attached MCP client (`mcp` runs playwright-mcp under it).
+clients() { named flock "--cdp-endpoint $CDP" | wc -l | tr -d ' '; }
+browser_pids() { named chromium "$MATCH"; }
+# The browser process itself: the one without a --type= (renderer, gpu, utility) switch.
+main_pid() {
+  for pid in $(browser_pids); do
+    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--type=' || { echo "$pid"; return 0; }
+  done
+}
+
+start() {
+  mkdir -p "$STATE" "$LOG_DIR" "$PROFILE"
+  if up; then return 0; fi
+  "$VNC" status >/dev/null 2>&1 || "$VNC" start >/dev/null
+  # Reset the profile's crash flag so Chromium does not offer to restore the last session.
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PROFILE/Default/Preferences" 2>/dev/null || true
+  DISPLAY=:$DISPLAY_NO XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-root} nohup chromium \
+    --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check \
+    --disable-sync --disable-extensions --password-store=basic --disable-features=Translate \
+    --remote-debugging-address=127.0.0.1 --remote-debugging-port="$PORT" \
+    --user-data-dir="$PROFILE" --window-position=40,40 --window-size=1200,860 \
+    "${1:-about:blank}" >"$LOG_DIR/agent-browser.log" 2>&1 &
+  i=0
+  while [ $i -lt 40 ] && ! up; do sleep 1; i=$((i + 1)); done
+  up || { echo "agent-browser: Chromium did not open DevTools on $CDP; see $LOG_DIR/agent-browser.log" >&2; return 1; }
+  date +%s >"$STAMP"
+  # The idle watcher belongs to this browser process and ends with it, so a browser started
+  # later gets its own watcher, with the settings it was started with.
+  main=$(main_pid)
+  [ -n "$main" ] && nohup "$0" watch "$main" >/dev/null 2>&1 &
+  return 0
+}
+
+stop() {
+  pids=$(browser_pids)
+  [ -n "$pids" ] && kill $pids 2>/dev/null || true
+  i=0
+  while [ $i -lt 10 ] && [ -n "$(browser_pids)" ]; do sleep 1; i=$((i + 1)); done
+  pids=$(browser_pids)
+  [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
+}
+
+# Memory of the browser's processes, in MiB (resident set, summed).
+memory() {
+  pids=$(browser_pids | tr '\n' ',' | sed 's/,$//')
+  [ -n "$pids" ] || { echo 0; return; }
+  ps -o rss= -p "$pids" 2>/dev/null | awk '{s += $1} END {printf "%d", s / 1024}'
+}
+
+reap() {
+  up || return 0
+  if [ "$(clients)" -gt 0 ]; then date +%s >"$STAMP"; return 0; fi
+  last=$(cat "$STAMP" 2>/dev/null || echo 0)
+  if [ $(( $(date +%s) - last )) -ge $((IDLE_MIN * 60)) ]; then
+    stop
+    echo "agent-browser: stopped after ${IDLE_MIN} min without an MCP client"
+  fi
+}
+
+case "${1:-status}" in
+start) shift; start "${1:-}"; "$0" status ;;
+stop) stop; echo stopped ;;
+status)
+  if up; then
+    v=$(curl -s -m 2 "$CDP/json/version" | python3 -c 'import sys,json; print(json.load(sys.stdin)["Browser"])' 2>/dev/null || echo "?")
+    echo "agent-browser up: $v, CDP $CDP, display :$DISPLAY_NO, profile $PROFILE, $(memory) MiB, $(clients) MCP client(s), idle stop after ${IDLE_MIN} min"
+  else
+    echo "agent-browser down"; exit 1
+  fi ;;
+mcp)
+  shift
+  start >&2
+  mkdir -p "$STATE"
+  date +%s >"$STAMP"
+  # One agent at a time on this display. stdout is the MCP stream, so messages go to stderr.
+  # Snapshots, console logs and downloads go to the state directory, not the caller's directory.
+  mkdir -p "$STATE/agent-browser-output"
+  exec flock -w "${AGENT_BROWSER_LOCK_WAIT:-600}" "$LOCK" "$PLAYWRIGHT_MCP" --cdp-endpoint "$CDP" \
+    --output-dir "$STATE/agent-browser-output" "$@" ;;
+reap) reap ;;
+watch)
+  # Internal: started by `start` with the browser's pid. Checks once a minute; ends with it.
+  pid=${2:?}
+  while kill -0 "$pid" 2>/dev/null; do sleep 60; kill -0 "$pid" 2>/dev/null && reap >/dev/null; done ;;
+*) echo "usage: $0 start [URL] | stop | status | mcp [playwright-mcp args] | reap" >&2; exit 2 ;;
+esac
