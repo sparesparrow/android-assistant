@@ -9,7 +9,7 @@ The prompts and scenarios that drive this stack ship in [mcp-prompts](https://gi
 | Path | What it is |
 |---|---|
 | `mcp/` | The `android-assistant` MCP server (`server.py`). It has these tools:<br>• the phone: `phone_status`, `screen`, `act`, `open`, `notify`, `run_tasker_task`, `mqtt_publish`, `speak`, `listen`, `phone_command`<br>• Gemini: `ask_gemini`, `gemini_reply`<br>• the other AI apps: `ask_ai`, `ai_reply`<br>• Gemini Notebooks: `notebook_ask`, `notebook_add_source`, `notebook_studio`, `notebook_read`<br>`remote.py` serves `phone_status`, `screen` and `notify`, and nothing else, over MCP Streamable HTTP to other machines on the tailnet (see below).<br>The drivers are `gemini.py`, `notebook.py` and `chatbots.py` (DeepSeek, Kimi, Grok, ChatGPT, Perplexity). Their tests run against recorded UI dumps in `fixtures/`. |
-| `agents/` | Claude Code agents: `phone`, `gemini`, `deepseek`, `kimi`, `grok`, `chatgpt`, `perplexity`.<br>• `run-agent.sh` runs them under the one-screen lock.<br>• `install.sh` symlinks them into `~/.claude/agents` and installs the Termux `agent-<name>` wrappers.<br>• `sshd_config` is the forced-command sshd that Tasker uses to start agents. |
+| `agents/` | Claude Code agents: `phone`, `gemini`, `deepseek`, `kimi`, `grok`, `chatgpt`, `perplexity`.<br>• `run-agent.sh` runs them under the one-screen lock.<br>• `app-eval.sh` runs the live app-agent eval (below).<br>• `install.sh` symlinks them into `~/.claude/agents` and installs the Termux `agent-<name>` wrappers.<br>• `sshd_config` is the forced-command sshd that Tasker uses to start agents. |
 | `skill/` | The Claude Code skills `android-assistant` (how this stack fits together) and `android-control` (the `droid` CLI over adb: uiautomator dumps, taps, typing, intents). |
 | `phone/` | Phone services:<br>• the adb loopback, the mic/speaker PulseAudio bundle, the native Termux ssh bridge, the watchdog (`phone-services`);<br>• `notif-wait.py`, which waits for a notification;<br>• `tasker/`: `tasker-edit.py` edits Tasker's config directly, plus task and scene builders and importers. |
 | `voice/` | The hands-free voice pipeline: the assistant gesture → Tasker → an HTTP trigger on 127.0.0.1:8780 → ElevenLabs STT → `claude -p` with these MCP tools → ElevenLabs TTS. |
@@ -86,6 +86,43 @@ The desktop side (`claude mcp add --transport http …`) and the matching mcp-pr
 ```bash
 cd mcp && .venv/bin/python -m pytest -q
 ```
+
+## Live app-agent eval
+
+The fixture tests catch regressions in our code. They don't catch changes in the apps. The live
+eval (mcp-prompts #142) runs one short real task per chat app: Gemini, DeepSeek, Kimi, Grok,
+ChatGPT and Perplexity. It runs under `agent.lock` and records each app's version, so a broken
+driver shows up when the app updates, not when someone next needs it.
+
+```bash
+agents/app-eval.sh run [APP ...]     # the suite; results in phone/state/app-eval/latest.md
+agents/app-eval.sh check             # installed versions against the last evaluated ones
+touch phone/state/app-eval/watch.enabled && phone/phone-services ensure   # re-run after app updates
+```
+
+- **The task:** a fresh code to repeat ("Reply with only this code: EVAL-KQX-4821"). A cached
+  reply can't pass, scoring needs no judgement, and the result is about the driver, not the
+  model's arithmetic.
+- **Scored per app**, using the rubric in the mcp-prompts prompt `android-app-agent-eval`:
+  - success;
+  - time to answer;
+  - extraction completeness;
+  - false actions: a step on screen in any app other than the one under test, the system UI or
+    the launcher. These must be 0. The system share sheet, or a messaging, mail, social or dialer
+    app on screen, is a blocker: a person is one tap away;
+  - a failure tag on the failed step: perception, action, timing, extraction or gate. `service`
+    means the app itself declined (capacity, plan limit, login), so the driver is not at fault.
+- **A failure posts a notification** naming the app, the step and the tag.
+- **UI dumps:** each step is dumped, trimmed, under `phone/state/app-eval/<run>/<app>/`. These
+  dumps can show chat titles from the app's drawer, so they stay in `state/`. Promote one to
+  `fixtures/` only after reading it (`android-app-agent-calibrate`).
+- **The watcher** is opt-in (`watch.enabled`). It checks versions every 30 minutes
+  (`APP_EVAL_INTERVAL`) and runs the apps that changed, but only while the phone is idle: awake,
+  unlocked and on the home screen. It never takes the screen from someone using it.
+- **The watcher is the update trigger.** It needs no Tasker profile, and it catches an update
+  within one interval. `app-eval.sh updated PKG` runs one app by package name, for a future Tasker
+  "Package Updated" event. That event is not wired up: the agent sshd's forced command only runs
+  agents, and widening it is a separate safety decision.
 
 ## Safety model
 
