@@ -240,7 +240,8 @@ def test_ask_no_send_stops_before_send(phone):
 
 
 def test_ask_confirms_share_dialog(phone):
-    ok = screen({"text": "Share", "cls": "Button", "click": True, "x": 850, "y": 1260}, pkg=DS)
+    ok = screen({"text": "Cancel", "cls": "Button", "click": True, "x": 500, "y": 1260},
+                {"text": "Share", "cls": "Button", "click": True, "x": 850, "y": 1260}, pkg=DS)
     phone.screens = [composer_screen(PROMPT), ok, deepseek_reply_screen("391")]
     r = chatbots.ask("deepseek", PROMPT, log=lambda m: None)
     assert phone.taps == [(980, 2100), (850, 1260)]
@@ -251,6 +252,23 @@ def test_ask_without_send_button_raises(phone):
     phone.screens = [composer_screen(PROMPT, send=False)]
     with pytest.raises(chatbots.ChatbotError, match="send"):
         chatbots.ask("deepseek", PROMPT, log=lambda m: None)
+
+
+def test_send_leaves_an_answers_share_button_alone(phone):
+    """A fast answer's action row can carry a Share Button (Gemini's makes a public link and
+    opens the share sheet). Only a dialog's Share, next to its dismiss button, is consent."""
+    answer_row = screen({"text": "391", "cls": "TextView", "x": 300, "y": 900},
+                        {"text": "Share", "cls": "Button", "click": True, "x": 400, "y": 1000},
+                        {"text": "Copy", "cls": "Button", "click": True, "x": 500, "y": 1000}, pkg=DS)
+    phone.screens = [answer_row]
+    chatbots.send("deepseek", composer_screen(PROMPT))
+    assert phone.taps == [(980, 2100)]
+    dialog = screen({"text": "Cancel", "cls": "Button", "click": True, "x": 300, "y": 1200},
+                    {"text": "Share", "cls": "Button", "click": True, "x": 700, "y": 1200}, pkg=DS)
+    phone.taps.clear()
+    phone.screens = [dialog, answer_row]
+    chatbots.send("deepseek", composer_screen(PROMPT))
+    assert phone.taps == [(980, 2100), (700, 1200)]
 
 
 def test_wait_times_out_while_generating(phone):

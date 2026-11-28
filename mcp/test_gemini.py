@@ -70,7 +70,10 @@ def test_ask_flow_sends_and_confirms_share(monkeypatch):
                 {"i": 1, "text": "", "desc": "Odeslat", "id": "", "cls": "View",
                  "pkg": "com.google.android.googlequicksearchbox", "click": False, "edit": False,
                  "x": 930, "y": 1345}]
-    share = [{"i": 0, "text": "Sdílet", "desc": "", "id": "", "cls": "Button",
+    share = [{"i": 0, "text": "Zrušit", "desc": "", "id": "", "cls": "Button",
+              "pkg": "com.google.android.googlequicksearchbox", "click": True, "edit": False,
+              "x": 600, "y": 1264},
+             {"i": 1, "text": "Sdílet", "desc": "", "id": "", "cls": "Button",
               "pkg": "com.google.android.googlequicksearchbox", "click": True, "edit": False,
               "x": 853, "y": 1264}]
     screens = iter([composer, share, load("reply-done.json"), load("reply-done.json")])
@@ -83,6 +86,29 @@ def test_ask_flow_sends_and_confirms_share(monkeypatch):
     assert r["sent"] and r["reply"] == "391"
     assert taps == [(930, 1345), (853, 1264)]
     assert "android.intent.action.SEND" in cmds[0][1] and "'Kolik je 17" in cmds[0][1]
+
+
+def test_answer_share_button_is_not_the_share_consent(monkeypatch):
+    """Real dump, 0.7 s after Send (2026-11-27): the answer's action row has a "Sdílet" Button,
+    which makes a public link to the chat and opens the share sheet. send() must not tap it."""
+    ns = load("reply-share-row.json")
+    assert any(n["cls"] == "Button" and gemini.label(n) == "sdilet" for n in ns)
+    assert gemini.share_consent(ns) is None
+    composer = [{"i": 0, "text": "", "desc": "Odeslat", "id": "", "cls": "View", "pkg": "p", "x": 930, "y": 1345}]
+    taps = []
+    monkeypatch.setattr(gemini, "nodes", lambda: ns)
+    monkeypatch.setattr(gemini, "tap", lambda x, y: taps.append((x, y)))
+    monkeypatch.setattr(gemini.time, "sleep", lambda s: None)
+    gemini.send(composer)
+    assert taps == [(930, 1345)]
+
+
+def test_share_consent_needs_a_dismiss_button_on_its_row():
+    ok = {"text": "Share", "cls": "Button", "y": 1264}
+    assert gemini.share_consent([ok, {"text": "Cancel", "cls": "Button", "y": 1264}]) is ok
+    assert gemini.share_consent([ok]) is None
+    assert gemini.share_consent([ok, {"text": "Cancel", "cls": "Button", "y": 400}]) is None
+    assert gemini.share_consent([{"text": "Share", "cls": "View", "y": 1}, {"text": "Cancel", "cls": "Button", "y": 1}]) is None
 
 
 def test_prompt_quote_is_shell_safe(monkeypatch):

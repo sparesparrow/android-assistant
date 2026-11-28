@@ -123,5 +123,9 @@ Global variables (`shared_prefs/...varry.xml`) are untouched.
     tasker-edit.py push                       # refuses if Tasker saved since pull, or references dangle
     tasker-edit.py restore BACKUP.xml
 
+`push`, `restore` and `tile` write as root, so each asks for `yes` on the terminal (`/dev/tty`).
+An agent cannot answer (exit 3): prepare the edit with `pull` and `edit --dry-run`, show the user
+the summary, and give them the exact command to run in Termux (`debian`, then the command).
+
 `edit` checks profile enter/exit tasks, project lists, scene button tasks and Perform Task calls,
 and warns when moving into a disabled project. Seconds instead of minutes of UI driving.

@@ -55,6 +55,23 @@ PLUS_LABELS = ["pridat prilohy", "add files", "add attachments", "open upload fi
 SEND_LABELS = ["odeslat", "send", "send message", "odeslat zpravu"]
 PLAY_LABELS = ["prehrat", "play", "read aloud", "precist nahlas", "listen"]
 SHARE_OK = ["sdilet", "share"]           # "content was added from another app - share it?"
+# The dialog's other button. An answer's own action row also has a Share button (Gemini's makes
+# a public link to the chat and opens the share sheet), but never one of these next to it.
+SHARE_DISMISS = ["zrusit", "cancel", "ne", "no", "not now", "ted ne", "nyni ne", "zavrit", "close"]
+
+
+def share_consent(ns: list[dict]) -> dict | None:
+    """The Share button of the "use content from another app?" dialog, or None. It counts only
+    as a Button with a dismiss Button on about the same row, so the Share button under an answer
+    is never taken for it."""
+    for ok in ns:
+        if ok.get("cls") != "Button" or label(ok) not in SHARE_OK:
+            continue
+        for n in ns:
+            if n is not ok and n.get("cls") == "Button" and label(n) in SHARE_DISMISS \
+                    and abs(n.get("y", 0) - ok.get("y", 0)) < 200:
+                return ok
+    return None
 START_RESEARCH = ["zahajit vyzkum", "start research", "spustit vyzkum"]
 HANDLE_ID = "assistant_robin_add_attachment_bottomsheet"
 INPUT_ID_HINT = "input"
@@ -230,8 +247,8 @@ def send(ns: list[dict]) -> list[dict]:
     ns = nodes()
     # Gemini asks before using text that arrived by share intent. The user asked for this
     # prompt to go to Gemini, so confirm; it is the same consent the user gave us.
-    ok = find(ns, SHARE_OK, exact=True)
-    if ok is not None and ok.get("cls") == "Button":
+    ok = share_consent(ns)
+    if ok is not None:
         tap(*clickable_at(ns, ok))
         time.sleep(2.0)
         ns = nodes()

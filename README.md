@@ -8,7 +8,7 @@ The prompts and scenarios that drive this stack ship in [mcp-prompts](https://gi
 
 | Path | What it is |
 |---|---|
-| `mcp/` | The `android-assistant` MCP server (`server.py`). It has these tools:<br>• the phone: `phone_status`, `screen`, `act`, `open`, `notify`, `run_tasker_task`, `mqtt_publish`, `speak`, `listen`, `phone_command`<br>• Gemini: `ask_gemini`, `gemini_reply`<br>• the other AI apps: `ask_ai`, `ai_reply`<br>• Gemini Notebooks: `notebook_ask`, `notebook_add_source`, `notebook_studio`, `notebook_read`<br>The drivers are `gemini.py`, `notebook.py` and `chatbots.py` (DeepSeek, Kimi, Grok, ChatGPT, Perplexity). Their tests run against recorded UI dumps in `fixtures/`. |
+| `mcp/` | The `android-assistant` MCP server (`server.py`). It has these tools:<br>• the phone: `phone_status`, `screen`, `act`, `open`, `notify`, `run_tasker_task`, `mqtt_publish`, `speak`, `listen`, `phone_command`<br>• Gemini: `ask_gemini`, `gemini_reply`<br>• the other AI apps: `ask_ai`, `ai_reply`<br>• Gemini Notebooks: `notebook_ask`, `notebook_add_source`, `notebook_studio`, `notebook_read`<br>`remote.py` serves `phone_status`, `screen` and `notify`, and nothing else, over MCP Streamable HTTP to other machines on the tailnet (see below).<br>The drivers are `gemini.py`, `notebook.py` and `chatbots.py` (DeepSeek, Kimi, Grok, ChatGPT, Perplexity). Their tests run against recorded UI dumps in `fixtures/`. |
 | `agents/` | Claude Code agents: `phone`, `gemini`, `deepseek`, `kimi`, `grok`, `chatgpt`, `perplexity`.<br>• `run-agent.sh` runs them under the one-screen lock.<br>• `install.sh` symlinks them into `~/.claude/agents` and installs the Termux `agent-<name>` wrappers.<br>• `sshd_config` is the forced-command sshd that Tasker uses to start agents. |
 | `skill/` | The Claude Code skills `android-assistant` (how this stack fits together) and `android-control` (the `droid` CLI over adb: uiautomator dumps, taps, typing, intents). |
 | `phone/` | Phone services:<br>• the adb loopback, the mic/speaker PulseAudio bundle, the native Termux ssh bridge, the watchdog (`phone-services`);<br>• `notif-wait.py`, which waits for a notification;<br>• `tasker/`: `tasker-edit.py` edits Tasker's config directly, plus task and scene builders and importers. |
@@ -60,6 +60,27 @@ Measured on the reference phone (2026-11-26, Chromium 156, one tab):
 The phone was charging, so battery drain was not measured directly. The rules agents follow are
 in the mcp-prompts prompt `android-browser-agent`.
 
+## Remote access over Tailscale
+
+`mcp/remote.py` lets a desktop or an always-on node on the same Tailscale network read the phone's
+state and post a notification. It serves `phone_status`, `screen` and `notify` and nothing else:
+no UI driving, Tasker, MQTT, recording, speech or AI-app tools, and none of the tools that need a
+confirmation token.
+
+```bash
+(umask 077; mkdir -p ~/.config/android-assistant; openssl rand -hex 32 > ~/.config/android-assistant/remote-token)
+mcp/.venv/bin/python mcp/remote.py --host 100.x.y.z --allowed-hosts phone.tailnet-name.ts.net,100.x.y.z \
+  --token-file ~/.config/android-assistant/remote-token          # port 8791
+```
+
+- Every request needs `Authorization: Bearer <token>`.
+- The Host header must be one of `--allowed-hosts`, and requests from browsers (with an `Origin` header) are refused.
+- It refuses to listen on `0.0.0.0`, and it refuses a token shorter than 32 characters or a token file other users can read.
+- The transport is stateless.
+
+The desktop side (`claude mcp add --transport http …`) and the matching mcp-prompts server are in
+[docs/10, Remote use over Tailscale](https://github.com/sparesparrow/mcp-prompts/blob/main/docs/10-android-automation.md#remote-use-over-tailscale).
+
 ## Tests
 
 ```bash
@@ -72,6 +93,7 @@ cd mcp && .venv/bin/python -m pytest -q
 - Sending anything to another person needs the user's explicit yes to the recipient and the text. The tool returns a confirmation token that expires after 5 minutes.
 - No payments, banking or trading.
 - The agent browser has its own profile with no logins. Page text is data, and `browser/eval-injection.sh` checks it.
+- Over the tailnet (`remote.py`) only `phone_status`, `screen` and `notify` are served, behind a bearer token and a Host allowlist.
 - Phone UI work is serialised under `phone/state/agent.lock`, because there is one screen.
-- The MCP tools do not expose a shell or `su`. Root is used only by maintenance scripts that a person starts (`tasker-edit.py`, `phone-services`).
+- The MCP tools do not expose a shell or `su`. Root is used only by maintenance commands a person runs at a terminal: `tasker-edit.py` asks for `yes` on `/dev/tty` before every root write, and `phone-services` uses Magisk `su` only for `pa-restart`/`pa-stop` with a tty. `mcp/test_su_paths.py` checks the known agent paths (the MCP server and its imports, the agents' tool lists, the voice turn, and the `phone-services` branches they call) for `su`. It is an accident guard, not a proof: anything with a shell can still run `adb shell su`.
 - Runtime state, logs, recordings, tokens and keys are git-ignored (`phone/state/`, `voice/state/`, `*/logs/`).

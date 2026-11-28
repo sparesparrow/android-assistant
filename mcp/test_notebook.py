@@ -105,3 +105,34 @@ def test_clipboard_waits_for_the_sheet_to_settle_and_leaves_quick_share(monkeypa
     assert taps == [("tap", 970, 1442), ("tap", 970, 1442)]
     assert ("key", "back") in cmds
     assert sum(1 for c in cmds if c[0] == "sh") == 2
+
+
+# --- wait_reply: a heading shown while the answer is still generating is not the answer ------
+GEN = json.loads((HERE / "fixtures" / "gemini" / "notebook-generating.json").read_text())
+DONE = json.loads((HERE / "fixtures" / "gemini" / "notebook-answer-done.json").read_text())
+OTHER = json.loads((HERE / "fixtures" / "gemini" / "notebook-other-app.json").read_text())
+STATUS_Q = "Status: open PRs android-assistant #19 (no Magisk su on agent paths)"
+
+
+def _screens(monkeypatch, *screens):
+    seq = list(screens)
+    monkeypatch.setattr(nb, "nodes", lambda: seq.pop(0) if len(seq) > 1 else seq[0])
+    clock = [0.0]                                          # fake clock: sleeping advances it
+    monkeypatch.setattr(nb.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr(nb.time, "time", lambda: clock[0])
+
+
+def test_generating_is_detected_from_the_stop_button():
+    assert nb.generating(GEN) and not nb.generating(DONE)
+
+
+def test_wait_reply_keeps_waiting_while_a_stable_heading_is_still_generating(monkeypatch):
+    _screens(monkeypatch, GEN, GEN, GEN, DONE, DONE)
+    out = nb.wait_reply(STATUS_Q, wait_s=600)
+    assert out.startswith("Repository: sparesparrow/android-assistant") and "Acceptance Test" in out
+
+
+def test_wait_reply_fails_fast_when_the_notebook_leaves_the_screen(monkeypatch):
+    _screens(monkeypatch, GEN, OTHER)
+    with pytest.raises(gemini.GeminiError, match="no longer on screen"):
+        nb.wait_reply(STATUS_Q, wait_s=600)

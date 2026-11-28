@@ -38,6 +38,7 @@ notify() {  # title, text: phone notification over the adb loopback (as the MCP 
   timeout 15 adb -s 127.0.0.1:5555 shell "cmd notification post -S bigtext -t '$t' claude-agent-$agent '$q'" >/dev/null 2>&1
 }
 
+# ensure never runs su (mic down -> plain adb child + note in ensure.log); root is pa-restart at a tty
 command -v phone-services >/dev/null 2>&1 && phone-services ensure >/dev/null 2>&1
 [ -x /root/phone/phone-services ] && /root/phone/phone-services ensure >/dev/null 2>&1
 
